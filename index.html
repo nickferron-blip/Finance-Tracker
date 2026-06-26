@@ -14,19 +14,10 @@
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root {
-    --bg: #f4f6fb;
-    --surface: #ffffff;
-    --surface2: #f0f2f8;
-    --border: #dde1ee;
-    --text: #1a1d2e;
-    --muted: #6b7280;
-    --accent: #6152d0;
-    --accent2: #7c6af7;
-    --green: #16a34a;
-    --red: #dc2626;
-    --yellow: #d97706;
-    --radius: 12px;
-    --radius-sm: 8px;
+    --bg: #f4f6fb; --surface: #ffffff; --surface2: #f0f2f8; --border: #dde1ee;
+    --text: #1a1d2e; --muted: #6b7280; --accent: #6152d0; --accent2: #7c6af7;
+    --green: #16a34a; --red: #dc2626; --yellow: #d97706;
+    --radius: 12px; --radius-sm: 8px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
@@ -82,18 +73,24 @@
   td { padding: 12px 14px; border-bottom: 1px solid var(--border); }
   tr:last-child td { border-bottom: none; }
   tr:hover td { background: var(--surface2); }
+  tr.parent-row td { background: var(--surface2); font-weight: 600; }
+  tr.sub-row td:first-child { padding-left: 28px; }
 
   .badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; }
   .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
-  .budget-item { margin-bottom: 16px; }
-  .budget-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-  .budget-bar-bg { background: var(--surface2); border-radius: 4px; height: 8px; overflow: hidden; }
+  /* Budget */
+  .budget-parent { margin-bottom: 20px; }
+  .budget-parent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; cursor: pointer; }
+  .budget-bar-bg { background: var(--surface2); border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 4px; }
   .budget-bar-fill { height: 100%; border-radius: 4px; transition: width 0.3s; }
+  .budget-subs { padding-left: 16px; border-left: 2px solid var(--border); margin-top: 8px; display: none; }
+  .budget-subs.open { display: block; }
+  .budget-sub-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: var(--muted); }
 
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 100; }
   .modal-overlay.open { display: flex; }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 95vw; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; width: 480px; max-width: 95vw; max-height: 90vh; overflow-y: auto; }
   .modal h2 { margin-bottom: 20px; font-size: 16px; }
   .modal-footer { margin-top: 20px; display: flex; gap: 10px; justify-content: flex-end; }
 
@@ -119,7 +116,11 @@
   .color-swatch { width: 28px; height: 28px; border-radius: 6px; cursor: pointer; border: 2px solid transparent; }
   .color-swatch.selected { border-color: var(--accent); box-shadow: 0 0 0 2px white, 0 0 0 4px var(--accent); }
 
-  /* Mobile responsive */
+  /* Category tree */
+  .cat-parent-row { background: var(--surface2); }
+  .cat-sub-row td:first-child { padding-left: 32px; }
+  .cat-sub-row td { color: var(--muted); }
+
   @media (max-width: 640px) {
     .app { grid-template-columns: 1fr; grid-template-rows: 56px auto 1fr; }
     nav { flex-direction: row; border-right: none; border-bottom: 1px solid var(--border); padding: 8px; overflow-x: auto; gap: 2px; }
@@ -128,7 +129,6 @@
     .grid-3 { grid-template-columns: 1fr; }
     .grid-2 { grid-template-columns: 1fr; }
     main { padding: 16px; }
-    #month-label { min-width: 80px; font-size: 13px; }
   }
 </style>
 </head>
@@ -139,7 +139,7 @@
   <div style="background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:40px; max-width:400px; width:90%; text-align:center;">
     <div style="font-size:48px; margin-bottom:16px;">💰</div>
     <h2 style="margin-bottom:8px;">Finance Tracker</h2>
-    <p style="color:var(--muted); margin-bottom:28px; line-height:1.6;">Sign in with Google to sync your data across all your devices via Google Drive.</p>
+    <p style="color:var(--muted); margin-bottom:28px; line-height:1.6;">Sign in with Google to sync your data across all your devices.</p>
     <button onclick="signIn()" style="background:#4285f4; color:white; border:none; padding:14px 24px; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; display:flex; align-items:center; gap:10px; margin:0 auto;">
       <svg width="18" height="18" viewBox="0 0 18 18"><path fill="#fff" d="M16.51 8H8.98v3h4.3c-.18 1-.74 1.48-1.6 2.04v2.01h2.6a7.8 7.8 0 002.38-5.88c0-.57-.05-.66-.15-1.18z"/><path fill="#fff" d="M8.98 17c2.16 0 3.97-.72 5.3-1.94l-2.6-2.04a4.8 4.8 0 01-7.18-2.54H1.83v2.07A8 8 0 008.98 17z"/><path fill="#fff" d="M4.5 10.48A4.8 4.8 0 014.5 7.52V5.45H1.83a8 8 0 000 7.1l2.67-2.07z"/><path fill="#fff" d="M8.98 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A8 8 0 001.83 5.45L4.5 7.52A4.77 4.77 0 018.98 3.58z"/></svg>
       Sign in with Google
@@ -168,7 +168,7 @@
     <button onclick="showPage('import', this)">📥 Import CSV</button>
     <button onclick="showPage('rules', this)">🧠 Auto-categorize</button>
     <div class="nav-spacer"></div>
-    <button onclick="exportData()" style="font-size:11px; color:var(--muted)">⬇ Export</button>
+    <button onclick="exportData()" style="font-size:11px; color:var(--muted)">⬇ Export backup</button>
     <button onclick="document.getElementById('import-data-file').click()" style="font-size:11px; color:var(--muted)">⬆ Import backup</button>
     <input type="file" id="import-data-file" accept=".json" style="display:none" onchange="importBackup(this)">
   </nav>
@@ -211,7 +211,7 @@
             <option value="expense">Expense</option>
             <option value="income">Income</option>
           </select>
-          <select id="txn-filter-cat" onchange="renderTransactions()" style="max-width:150px">
+          <select id="txn-filter-cat" onchange="renderTransactions()" style="max-width:160px">
             <option value="">All categories</option>
           </select>
         </div>
@@ -248,7 +248,7 @@
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Color</th><th>Name</th><th>Type</th><th>Transactions</th><th></th></tr></thead>
+          <thead><tr><th>Color</th><th>Name</th><th>Type</th><th>Sub-categories</th><th>Transactions</th><th></th></tr></thead>
           <tbody id="cat-tbody"></tbody>
         </table>
       </div>
@@ -306,7 +306,7 @@
           <thead><tr><th>Type</th><th>Pattern</th><th>Category</th><th></th></tr></thead>
           <tbody id="rules-tbody"></tbody>
         </table>
-        <div id="rules-empty" class="empty" style="display:none">No learned rules yet. Correct a transaction's category and it will appear here.</div>
+        <div id="rules-empty" class="empty" style="display:none">No learned rules yet.</div>
       </div>
     </div>
   </main>
@@ -403,9 +403,15 @@
       </div>
       <div class="form-group full">
         <label>Type</label>
-        <select id="cat-type">
+        <select id="cat-type" onchange="refreshParentSelect()">
           <option value="expense">Expense</option>
           <option value="income">Income</option>
+        </select>
+      </div>
+      <div class="form-group full">
+        <label>Parent category (optional — leave blank to create a top-level category)</label>
+        <select id="cat-parent">
+          <option value="">— Top-level category —</option>
         </select>
       </div>
       <div class="form-group full">
@@ -438,30 +444,87 @@ let csvHeaders = [];
 
 const COLORS = ['#7c6af7','#a78bfa','#22c55e','#4ade80','#f87171','#fb923c','#fbbf24','#facc15','#38bdf8','#818cf8','#f472b6','#e879f9','#2dd4bf','#34d399','#94a3b8','#64748b'];
 
+// ===== DEFAULT CATEGORIES (parent → sub-category hierarchy) =====
 const DEFAULT_CATEGORIES = [
-  {id:'c1',  name:'Housing',       type:'expense', color:'#fb923c'},
-  {id:'c2',  name:'Food & Dining', type:'expense', color:'#fbbf24'},
-  {id:'c3',  name:'Transport',     type:'expense', color:'#38bdf8'},
-  {id:'c4',  name:'Lifestyle',     type:'expense', color:'#f472b6'},
-  {id:'c5',  name:'Health',        type:'expense', color:'#4ade80'},
-  {id:'c6',  name:'Utilities',     type:'expense', color:'#94a3b8'},
-  {id:'c7',  name:'Other',         type:'expense', color:'#64748b'},
-  {id:'c8',  name:'Savings',       type:'expense', color:'#818cf8'},
-  {id:'c9',  name:'Taxes',         type:'expense', color:'#e879f9'},
-  {id:'c10', name:'School',        type:'expense', color:'#2dd4bf'},
-  {id:'c11', name:'Activities',    type:'expense', color:'#34d399'},
-  {id:'c12', name:'Miscellaneous', type:'expense', color:'#94a3b8'},
-  {id:'c13', name:'Vacations',     type:'expense', color:'#facc15'},
-  {id:'c14', name:'Personal',      type:'expense', color:'#fb7185'},
-  {id:'c15', name:'Salary',        type:'income',  color:'#22c55e'},
-  {id:'c16', name:'Gov. Support',  type:'income',  color:'#34d399'},
+  // === PARENT CATEGORIES ===
+  {id:'p1',  name:'Housing',       type:'expense', color:'#fb923c', parentId:null},
+  {id:'p2',  name:'Food & Dining', type:'expense', color:'#fbbf24', parentId:null},
+  {id:'p3',  name:'Transport',     type:'expense', color:'#38bdf8', parentId:null},
+  {id:'p4',  name:'Utilities',     type:'expense', color:'#94a3b8', parentId:null},
+  {id:'p5',  name:'Health',        type:'expense', color:'#4ade80', parentId:null},
+  {id:'p6',  name:'Lifestyle',     type:'expense', color:'#f472b6', parentId:null},
+  {id:'p7',  name:'Other',         type:'expense', color:'#64748b', parentId:null},
+  {id:'p8',  name:'Savings',       type:'expense', color:'#818cf8', parentId:null},
+  {id:'p9',  name:'Taxes',         type:'expense', color:'#e879f9', parentId:null},
+  {id:'p10', name:'School',        type:'expense', color:'#2dd4bf', parentId:null},
+  {id:'p11', name:'Activities',    type:'expense', color:'#34d399', parentId:null},
+  {id:'p12', name:'Miscellaneous', type:'expense', color:'#fb923c', parentId:null},
+  {id:'p13', name:'Vacations',     type:'expense', color:'#facc15', parentId:null},
+  {id:'p14', name:'Personal',      type:'expense', color:'#fb7185', parentId:null},
+  {id:'p15', name:'Salary',        type:'income',  color:'#22c55e', parentId:null},
+  {id:'p16', name:'Gov. Support',  type:'income',  color:'#34d399', parentId:null},
+  // === SUB-CATEGORIES ===
+  // Housing
+  {id:'c1',  name:'Mortgage',           type:'expense', color:'#fb923c', parentId:'p1'},
+  {id:'c2',  name:'Home Insurance',     type:'expense', color:'#fb923c', parentId:'p1'},
+  {id:'c3',  name:'Hydro',              type:'expense', color:'#fb923c', parentId:'p1'},
+  {id:'c4',  name:'LOC',                type:'expense', color:'#fb923c', parentId:'p1'},
+  // Food & Dining
+  {id:'c5',  name:'Groceries',          type:'expense', color:'#fbbf24', parentId:'p2'},
+  {id:'c6',  name:'School Lunch',       type:'expense', color:'#fbbf24', parentId:'p2'},
+  {id:'c7',  name:'Alcohol',            type:'expense', color:'#fbbf24', parentId:'p2'},
+  {id:'c8',  name:'Restaurants',        type:'expense', color:'#fbbf24', parentId:'p2'},
+  {id:'c9',  name:'Coffee',             type:'expense', color:'#fbbf24', parentId:'p2'},
+  // Transport
+  {id:'c10', name:'Car Payment',        type:'expense', color:'#38bdf8', parentId:'p3'},
+  {id:'c11', name:'Auto Insurance',     type:'expense', color:'#38bdf8', parentId:'p3'},
+  {id:'c12', name:'Fuel',               type:'expense', color:'#38bdf8', parentId:'p3'},
+  // Utilities
+  {id:'c13', name:'ADT (Telus)',         type:'expense', color:'#94a3b8', parentId:'p4'},
+  {id:'c14', name:'Telus Internet',     type:'expense', color:'#94a3b8', parentId:'p4'},
+  // Health
+  {id:'c15', name:'Pharmacie',          type:'expense', color:'#4ade80', parentId:'p5'},
+  {id:'c16', name:'Gym',                type:'expense', color:'#4ade80', parentId:'p5'},
+  // Lifestyle
+  {id:'c17', name:'Outings',            type:'expense', color:'#f472b6', parentId:'p6'},
+  {id:'c18', name:'Streaming',          type:'expense', color:'#f472b6', parentId:'p6'},
+  // Other
+  {id:'c19', name:'Wimgym',             type:'expense', color:'#64748b', parentId:'p7'},
+  {id:'c20', name:'Hair',               type:'expense', color:'#64748b', parentId:'p7'},
+  {id:'c21', name:'Bank Fees',          type:'expense', color:'#64748b', parentId:'p7'},
+  // Savings
+  {id:'c22', name:'REEE',               type:'expense', color:'#818cf8', parentId:'p8'},
+  {id:'c23', name:'Retirement Nick',    type:'expense', color:'#818cf8', parentId:'p8'},
+  {id:'c24', name:'Retirement Jess',    type:'expense', color:'#818cf8', parentId:'p8'},
+  {id:'c25', name:'Emergency Fund',     type:'expense', color:'#818cf8', parentId:'p8'},
+  // Taxes
+  {id:'c26', name:'City Tax',           type:'expense', color:'#e879f9', parentId:'p9'},
+  {id:'c27', name:'School Tax',         type:'expense', color:'#e879f9', parentId:'p9'},
+  // School
+  {id:'c28', name:'SDG',                type:'expense', color:'#2dd4bf', parentId:'p10'},
+  {id:'c29', name:'Private Tuition',    type:'expense', color:'#2dd4bf', parentId:'p10'},
+  // Activities
+  {id:'c30', name:'Summer Camp',        type:'expense', color:'#34d399', parentId:'p11'},
+  // Miscellaneous
+  {id:'c31', name:'Clothing',           type:'expense', color:'#fb923c', parentId:'p12'},
+  {id:'c32', name:'Car Savings',        type:'expense', color:'#fb923c', parentId:'p12'},
+  {id:'c33', name:'Gifts',              type:'expense', color:'#fb923c', parentId:'p12'},
+  {id:'c34', name:'Gas Bill',           type:'expense', color:'#fb923c', parentId:'p12'},
+  // Salary
+  {id:'c35', name:"Nick's Salary",      type:'income',  color:'#22c55e', parentId:'p15'},
+  {id:'c36', name:"Jess's Salary",      type:'income',  color:'#22c55e', parentId:'p15'},
+  // Gov. Support
+  {id:'c37', name:'Canada Child Benefit',  type:'income', color:'#34d399', parentId:'p16'},
+  {id:'c38', name:'Quebec Child Benefit',  type:'income', color:'#34d399', parentId:'p16'},
+  {id:'c39', name:'Daycare (Gov.)',         type:'income', color:'#34d399', parentId:'p16'},
 ];
 
+// Budgets set at parent level
 const DEFAULT_BUDGETS = {
-  c1: 1081.24, c2: 2236.80, c3: 1670.16, c4: 1218.74,
-  c5:  204.00, c6:  134.52, c7:  495.38, c8:  449.23,
-  c9:  499.98, c10: 380.00, c11: 166.67, c12: 440.50,
-  c13:1000.00, c14: 300.00,
+  p1: 1081.24, p2: 2236.80, p3: 1670.16, p4:  134.52,
+  p5:  204.00, p6: 1218.74, p7:  495.38, p8:  449.23,
+  p9:  499.98, p10: 380.00, p11: 166.67, p12: 440.50,
+  p13:1000.00, p14: 300.00,
 };
 
 // ===== PERSISTENCE — Google Drive + IndexedDB cache =====
@@ -474,7 +537,6 @@ let _driveFileId = null;
 let _saveTimer = null;
 let _db = null;
 
-// IndexedDB — offline cache
 function _openDB() {
   return new Promise((res, rej) => {
     const req = indexedDB.open('finance-tracker', 1);
@@ -507,6 +569,8 @@ function _applyDefaults() {
   if (!state.budgets) state.budgets = {};
   if (!Object.keys(state.budgets).length) state.budgets = {...DEFAULT_BUDGETS};
   if (!state.rules) state.rules = {};
+  // Ensure all categories have parentId field
+  state.categories.forEach(c => { if (!('parentId' in c)) c.parentId = null; });
 }
 
 function _showSaved() {
@@ -515,33 +579,17 @@ function _showSaved() {
   setTimeout(() => el.style.opacity = '0', 1500);
 }
 
-// Google Drive helpers
-async function _driveRequest(url, method, body) {
-  const res = await fetch(url, {
-    method, headers: {
-      'Authorization': 'Bearer ' + _accessToken,
-      ...(body ? {'Content-Type': 'application/json'} : {})
-    },
-    ...(body ? {body: JSON.stringify(body)} : {})
-  });
-  if (!res.ok) throw new Error('Drive API error: ' + res.status);
-  return res;
-}
-
 async function _findOrCreateFile() {
-  // Search in appDataFolder
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${FILE_NAME}'&fields=files(id)`,
     {headers: {'Authorization': 'Bearer ' + _accessToken}}
   );
   const data = await res.json();
   if (data.files?.length) return data.files[0].id;
-  // Create new file
-  const meta = {name: FILE_NAME, parents: ['appDataFolder']};
   const create = await fetch('https://www.googleapis.com/drive/v3/files', {
     method: 'POST',
     headers: {'Authorization': 'Bearer ' + _accessToken, 'Content-Type': 'application/json'},
-    body: JSON.stringify(meta)
+    body: JSON.stringify({name: FILE_NAME, parents: ['appDataFolder']})
   });
   const file = await create.json();
   return file.id;
@@ -578,7 +626,6 @@ function save() {
   _saveTimer = setTimeout(_saveToDrive, 800);
 }
 
-// Google Sign-In
 function _updateAuthUI(signedIn) {
   document.getElementById('btn-signin').style.display = signedIn ? 'none' : 'flex';
   document.getElementById('btn-signout').style.display = signedIn ? 'flex' : 'none';
@@ -587,10 +634,9 @@ function _updateAuthUI(signedIn) {
 
 async function signIn() {
   const client = google.accounts.oauth2.initTokenClient({
-    client_id: CLIENT_ID,
-    scope: SCOPES,
+    client_id: CLIENT_ID, scope: SCOPES,
     callback: async (response) => {
-      if (response.error) { console.error(response); return; }
+      if (response.error) return;
       _accessToken = response.access_token;
       _updateAuthUI(true);
       await _loadFromDrive();
@@ -605,24 +651,18 @@ async function signIn() {
 
 function signOut() {
   if (_accessToken) google.accounts.oauth2.revoke(_accessToken);
-  _accessToken = null;
-  _driveFileId = null;
+  _accessToken = null; _driveFileId = null;
   _updateAuthUI(false);
 }
 
 async function loadState() {
-  // Load from local cache immediately so UI isn't blank
   const cached = await _loadLocal();
   if (cached) { state = cached; _applyDefaults(); }
-  // Show sign-in overlay — user must auth to sync with Drive
   _updateAuthUI(false);
-  // Try silent token refresh if user was previously signed in
   try {
     await new Promise((res) => {
       const client = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        prompt: '',
+        client_id: CLIENT_ID, scope: SCOPES, prompt: '',
         callback: async (response) => {
           if (!response.error && response.access_token) {
             _accessToken = response.access_token;
@@ -635,7 +675,7 @@ async function loadState() {
         }
       });
       client.requestAccessToken({prompt: ''});
-      setTimeout(res, 3000); // timeout fallback
+      setTimeout(res, 3000);
     });
   } catch(e) {}
 }
@@ -650,84 +690,115 @@ function exportData() {
 }
 
 function importBackup(input) {
-  const file = input.files[0];
-  if (!file) return;
+  const file = input.files[0]; if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
       const imported = JSON.parse(e.target.result);
       if (!imported.transactions) throw new Error('Invalid backup file');
-      if (!confirm(`This will replace all your data with the backup. Continue?`)) return;
-      state = imported;
-      if (!state.rules) state.rules = {};
-      save();
+      if (!confirm('This will replace all your data with the backup. Continue?')) return;
+      state = imported; _applyDefaults(); save();
       document.getElementById('month-label').textContent = monthStr(state.currentMonth);
-      renderAll();
-      alert('Backup restored successfully.');
+      renderAll(); alert('Backup restored successfully.');
     } catch(err) { alert('Invalid backup file: ' + err.message); }
   };
-  reader.readAsText(file);
-  input.value = '';
+  reader.readAsText(file); input.value = '';
+}
+
+// ===== CATEGORY HELPERS =====
+function parentCats(type)  { return state.categories.filter(c => !c.parentId && (!type || c.type === type)); }
+function subCats(parentId) { return state.categories.filter(c => c.parentId === parentId); }
+function getCat(id)        { return state.categories.find(c => c.id === id) || {name:'Uncategorized', color:'#64748b', type:'expense', parentId:null}; }
+function getParent(cat)    { return cat.parentId ? getCat(cat.parentId) : cat; }
+
+// Sum transactions for a category AND all its sub-categories
+function catTotal(catId, txns) {
+  const subs = state.categories.filter(c => c.parentId === catId).map(c => c.id);
+  return txns.filter(t => t.categoryId === catId || subs.includes(t.categoryId)).reduce((s,t) => s+t.amount, 0);
+}
+
+function catDisplayName(cat) {
+  if (cat.parentId) {
+    const p = getCat(cat.parentId);
+    return `${p.name} › ${cat.name}`;
+  }
+  return cat.name;
 }
 
 // ===== AUTO-CATEGORIZATION =====
 const KEYWORD_MAP = [
-  {kw:'mortgage',        cat:'Housing'},    {kw:'hydro',          cat:'Housing'},
-  {kw:'hydro-québec',    cat:'Housing'},    {kw:'home ins',       cat:'Housing'},
-  {kw:'grocery',         cat:'Food & Dining'},{kw:'groceries',    cat:'Food & Dining'},
-  {kw:'metro',           cat:'Food & Dining'},{kw:'iga ',         cat:'Food & Dining'},
-  {kw:'maxi',            cat:'Food & Dining'},{kw:'costco',       cat:'Food & Dining'},
-  {kw:'walmart',         cat:'Food & Dining'},{kw:'provigo',      cat:'Food & Dining'},
-  {kw:'supermarché',     cat:'Food & Dining'},{kw:'supermarche',  cat:'Food & Dining'},
-  {kw:'restaurant',      cat:'Food & Dining'},{kw:'mcdonald',     cat:'Food & Dining'},
-  {kw:'tim horton',      cat:'Food & Dining'},{kw:'starbucks',    cat:'Food & Dining'},
-  {kw:'subway',          cat:'Food & Dining'},{kw:'pizza',        cat:'Food & Dining'},
-  {kw:'burger',          cat:'Food & Dining'},{kw:'café',         cat:'Food & Dining'},
-  {kw:'cafe ',           cat:'Food & Dining'},{kw:'coffee',       cat:'Food & Dining'},
-  {kw:'alcool',          cat:'Food & Dining'},{kw:'saq ',         cat:'Food & Dining'},
-  {kw:'school lunch',    cat:'Food & Dining'},
-  {kw:'car payment',     cat:'Transport'},   {kw:'auto ins',      cat:'Transport'},
-  {kw:'assurance auto',  cat:'Transport'},   {kw:'fuel',          cat:'Transport'},
-  {kw:'gas station',     cat:'Transport'},   {kw:'esso',          cat:'Transport'},
-  {kw:'petro',           cat:'Transport'},   {kw:'shell',         cat:'Transport'},
-  {kw:'parking',         cat:'Transport'},   {kw:'uber',          cat:'Transport'},
-  {kw:'taxi',            cat:'Transport'},   {kw:'stm',           cat:'Transport'},
-  {kw:'exo ',            cat:'Transport'},
-  {kw:'telus',           cat:'Utilities'},   {kw:'bell ',         cat:'Utilities'},
-  {kw:'rogers',          cat:'Utilities'},   {kw:'internet',      cat:'Utilities'},
-  {kw:'adt ',            cat:'Utilities'},   {kw:'videotron',     cat:'Utilities'},
-  {kw:'pharmaci',        cat:'Health'},      {kw:'jean coutu',    cat:'Health'},
-  {kw:'shoppers',        cat:'Health'},      {kw:'uniprix',       cat:'Health'},
-  {kw:'clsc',            cat:'Health'},      {kw:'dentist',       cat:'Health'},
-  {kw:'gym',             cat:'Health'},      {kw:'wimgym',        cat:'Other'},
-  {kw:'netflix',         cat:'Lifestyle'},   {kw:'disney',        cat:'Lifestyle'},
-  {kw:'amazon prime',    cat:'Lifestyle'},   {kw:'spotify',       cat:'Lifestyle'},
-  {kw:'cinema',          cat:'Lifestyle'},   {kw:'outing',        cat:'Lifestyle'},
-  {kw:'ville de',        cat:'Taxes'},       {kw:'city of',       cat:'Taxes'},
-  {kw:'taxe ',           cat:'Taxes'},       {kw:'revenu québec', cat:'Taxes'},
-  {kw:'cra ',            cat:'Taxes'},
-  {kw:'sdg ',            cat:'School'},      {kw:'école',         cat:'School'},
-  {kw:'tuition',         cat:'School'},      {kw:'college',       cat:'School'},
-  {kw:'summer camp',     cat:'Activities'},  {kw:'camp ',         cat:'Activities'},
-  {kw:'reee',            cat:'Savings'},     {kw:'resp',          cat:'Savings'},
-  {kw:'rrsp',            cat:'Savings'},     {kw:'épargne',       cat:'Savings'},
-  {kw:'clothing',        cat:'Miscellaneous'},{kw:'vêtement',     cat:'Miscellaneous'},
-  {kw:'gift',            cat:'Miscellaneous'},{kw:'cadeau',       cat:'Miscellaneous'},
-  {kw:'hotel',           cat:'Vacations'},   {kw:'airbnb',        cat:'Vacations'},
-  {kw:'flight',          cat:'Vacations'},   {kw:'air canada',    cat:'Vacations'},
-  {kw:'payroll',         cat:'Salary'},      {kw:'paie',          cat:'Salary'},
-  {kw:'salaire',         cat:'Salary'},      {kw:'direct dep',    cat:'Salary'},
-  {kw:'child benefit',   cat:'Gov. Support'},{kw:'allocation',    cat:'Gov. Support'},
-  {kw:'gouv',            cat:'Gov. Support'},
+  // Housing subs
+  {kw:'mortgage',       cat:'Mortgage'},      {kw:'hydro',          cat:'Hydro'},
+  {kw:'hydro-québec',   cat:'Hydro'},          {kw:'home ins',       cat:'Home Insurance'},
+  // Food subs
+  {kw:'grocery',        cat:'Groceries'},      {kw:'groceries',      cat:'Groceries'},
+  {kw:'metro',          cat:'Groceries'},      {kw:'iga ',           cat:'Groceries'},
+  {kw:'maxi',           cat:'Groceries'},      {kw:'costco',         cat:'Groceries'},
+  {kw:'walmart',        cat:'Groceries'},      {kw:'provigo',        cat:'Groceries'},
+  {kw:'supermarché',    cat:'Groceries'},      {kw:'supermarche',    cat:'Groceries'},
+  {kw:'school lunch',   cat:'School Lunch'},
+  {kw:'alcool',         cat:'Alcohol'},        {kw:'saq ',           cat:'Alcohol'},
+  {kw:'restaurant',     cat:'Restaurants'},    {kw:'mcdonald',       cat:'Restaurants'},
+  {kw:'tim horton',     cat:'Restaurants'},    {kw:'pizza',          cat:'Restaurants'},
+  {kw:'burger',         cat:'Restaurants'},    {kw:'subway',         cat:'Restaurants'},
+  {kw:'starbucks',      cat:'Coffee'},         {kw:'café',           cat:'Coffee'},
+  {kw:'cafe ',          cat:'Coffee'},         {kw:'coffee',         cat:'Coffee'},
+  // Transport subs
+  {kw:'car payment',    cat:'Car Payment'},    {kw:'auto ins',       cat:'Auto Insurance'},
+  {kw:'assurance auto', cat:'Auto Insurance'}, {kw:'fuel',           cat:'Fuel'},
+  {kw:'gas station',    cat:'Fuel'},           {kw:'esso',           cat:'Fuel'},
+  {kw:'petro',          cat:'Fuel'},           {kw:'shell',          cat:'Fuel'},
+  {kw:'parking',        cat:'Transport'},      {kw:'uber',           cat:'Transport'},
+  {kw:'stm',            cat:'Transport'},      {kw:'exo ',           cat:'Transport'},
+  // Utilities subs
+  {kw:'adt ',           cat:'ADT (Telus)'},    {kw:'telus',          cat:'Telus Internet'},
+  {kw:'bell ',          cat:'Utilities'},      {kw:'rogers',         cat:'Utilities'},
+  {kw:'videotron',      cat:'Utilities'},
+  // Health subs
+  {kw:'pharmaci',       cat:'Pharmacie'},      {kw:'jean coutu',     cat:'Pharmacie'},
+  {kw:'shoppers',       cat:'Pharmacie'},      {kw:'uniprix',        cat:'Pharmacie'},
+  {kw:'gym',            cat:'Gym'},            {kw:'wimgym',         cat:'Wimgym'},
+  // Lifestyle subs
+  {kw:'netflix',        cat:'Streaming'},      {kw:'disney',         cat:'Streaming'},
+  {kw:'amazon prime',   cat:'Streaming'},      {kw:'spotify',        cat:'Streaming'},
+  {kw:'outing',         cat:'Outings'},        {kw:'cinema',         cat:'Outings'},
+  // Other subs
+  {kw:'hair',           cat:'Hair'},           {kw:'bank fee',       cat:'Bank Fees'},
+  // Savings subs
+  {kw:'reee',           cat:'REEE'},           {kw:'resp',           cat:'REEE'},
+  {kw:'rrsp',           cat:'Retirement Nick'},{kw:'retirement',     cat:'Retirement Nick'},
+  // Taxes subs
+  {kw:'ville de',       cat:'City Tax'},       {kw:'city of',        cat:'City Tax'},
+  {kw:'revenu québec',  cat:'Taxes'},          {kw:'cra ',           cat:'Taxes'},
+  // School subs
+  {kw:'sdg ',           cat:'SDG'},            {kw:'tuition',        cat:'Private Tuition'},
+  // Activities subs
+  {kw:'summer camp',    cat:'Summer Camp'},    {kw:'camp ',          cat:'Summer Camp'},
+  // Misc subs
+  {kw:'clothing',       cat:'Clothing'},       {kw:'vêtement',       cat:'Clothing'},
+  {kw:'gift',           cat:'Gifts'},          {kw:'cadeau',         cat:'Gifts'},
+  {kw:'gas bill',       cat:'Gas Bill'},
+  // Vacations
+  {kw:'hotel',          cat:'Vacations'},      {kw:'airbnb',         cat:'Vacations'},
+  {kw:'flight',         cat:'Vacations'},      {kw:'air canada',     cat:'Vacations'},
+  // Income subs
+  {kw:'payroll',        cat:"Nick's Salary"},  {kw:'paie',           cat:"Nick's Salary"},
+  {kw:'salaire',        cat:"Nick's Salary"},  {kw:'direct dep',     cat:"Nick's Salary"},
+  {kw:'child benefit',  cat:'Canada Child Benefit'},
+  {kw:'allocation',     cat:'Quebec Child Benefit'},
+  {kw:'gouv',           cat:'Gov. Support'},
 ];
 
 function normDesc(d) { return d.toLowerCase().trim(); }
 
 function autoCategorize(description, type) {
   const nd = normDesc(description);
+  // 1. Exact learned rule
   if (state.rules[nd]) return state.rules[nd];
+  // 2. Keyword learned rules
   for (const [p, catId] of Object.entries(state.rules))
     if (p.startsWith('kw:') && nd.includes(p.slice(3))) return catId;
+  // 3. Built-in keyword map — match to sub-category name first
   for (const {kw, cat} of KEYWORD_MAP) {
     if (nd.includes(kw.toLowerCase())) {
       const found = state.categories.find(c => c.name === cat && c.type === type)
@@ -735,19 +806,20 @@ function autoCategorize(description, type) {
       if (found) return found.id;
     }
   }
-  return state.categories.find(c => c.type === type)?.id || state.categories[0]?.id;
+  // 4. Fallback: first sub-category of matching type, or first parent
+  return state.categories.find(c => c.parentId && c.type === type)?.id
+      || state.categories.find(c => c.type === type)?.id
+      || state.categories[0]?.id;
 }
 
 function learnRule(description, categoryId) {
-  state.rules[normDesc(description)] = categoryId;
-  save();
+  state.rules[normDesc(description)] = categoryId; save();
 }
 
 // ===== UTILS =====
 function fmt(n) { return '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
+function uid()  { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
 function getMonthTxns(month) { return state.transactions.filter(t => t.date.slice(0,7) === month); }
-function getCat(id) { return state.categories.find(c => c.id === id) || {name:'Uncategorized', color:'#64748b', type:'expense'}; }
 function monthStr(ym) {
   const [y,m] = ym.split('-');
   return new Date(y, m-1).toLocaleString('default', {month:'long', year:'numeric'});
@@ -786,7 +858,7 @@ let chartDonut, chartBar, chartBudget;
 
 function renderDashboard() {
   const txns = getMonthTxns(state.currentMonth);
-  const income = txns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const income   = txns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
   const expenses = txns.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
   document.getElementById('dash-income').textContent = fmt(income);
   document.getElementById('dash-expenses').textContent = fmt(expenses);
@@ -795,29 +867,31 @@ function renderDashboard() {
   netEl.textContent = (net < 0 ? '-' : '') + fmt(net);
   netEl.className = 'stat-value ' + (net >= 0 ? 'green' : 'red');
 
+  // Recent transactions
   const recent = [...state.transactions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
   const recEl = document.getElementById('dash-recent');
   if (!recent.length) { recEl.innerHTML = '<div class="empty">No transactions yet.</div>'; }
   else {
     recEl.innerHTML = `<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr></thead><tbody>${
-      recent.map(t => { const cat = getCat(t.categoryId); return `<tr>
+      recent.map(t => { const cat = getCat(t.categoryId); const par = getParent(cat); return `<tr>
         <td>${t.date}</td><td>${t.description}</td>
-        <td><span class="badge" style="background:${cat.color}22;color:${cat.color}"><span class="dot" style="background:${cat.color}"></span>${cat.name}</span></td>
+        <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
         <td class="${t.type==='income'?'tag-income':'tag-expense'}">${t.type==='income'?'+':'-'}${fmt(t.amount)}</td>
       </tr>`; }).join('')
     }</tbody></table>`;
   }
 
-  const expBycat = {};
-  txns.filter(t=>t.type==='expense').forEach(t => { expBycat[t.categoryId] = (expBycat[t.categoryId]||0) + t.amount; });
-  const catIds = Object.keys(expBycat);
+  // Donut — group by PARENT category
+  const parents = parentCats('expense');
+  const donutData = parents.map(p => ({p, total: catTotal(p.id, txns.filter(t=>t.type==='expense'))})).filter(x=>x.total>0);
   if (chartDonut) chartDonut.destroy();
   chartDonut = new Chart(document.getElementById('chart-donut'), {
     type:'doughnut',
-    data:{ labels: catIds.map(id=>getCat(id).name), datasets:[{data:catIds.map(id=>expBycat[id]), backgroundColor:catIds.map(id=>getCat(id).color), borderWidth:0}] },
+    data:{ labels: donutData.map(x=>x.p.name), datasets:[{data:donutData.map(x=>x.total), backgroundColor:donutData.map(x=>x.p.color), borderWidth:0}] },
     options:{plugins:{legend:{labels:{color:'#6b7280',font:{size:12}}}}, responsive:true, maintainAspectRatio:false}
   });
 
+  // Bar — last 6 months
   const months = [];
   for (let i=5; i>=0; i--) {
     const [y,m] = state.currentMonth.split('-').map(Number);
@@ -828,7 +902,7 @@ function renderDashboard() {
   chartBar = new Chart(document.getElementById('chart-bar'), {
     type:'bar',
     data:{labels:months.map(m=>m.slice(5)), datasets:[
-      {label:'Income', data:months.map(mo=>getMonthTxns(mo).filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)), backgroundColor:'#22c55e88', borderColor:'#22c55e', borderWidth:1},
+      {label:'Income',   data:months.map(mo=>getMonthTxns(mo).filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)),  backgroundColor:'#22c55e88', borderColor:'#22c55e', borderWidth:1},
       {label:'Expenses', data:months.map(mo=>getMonthTxns(mo).filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0)), backgroundColor:'#dc262688', borderColor:'#dc2626', borderWidth:1},
     ]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b7280'}}}, scales:{x:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}},y:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}}}}
@@ -839,23 +913,26 @@ function renderDashboard() {
 function renderTransactions() {
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const filterType = document.getElementById('txn-filter-type')?.value||'';
-  const filterCat = document.getElementById('txn-filter-cat')?.value||'';
+  const filterCat  = document.getElementById('txn-filter-cat')?.value||'';
   let txns = getMonthTxns(state.currentMonth);
-  if (search) txns = txns.filter(t=>t.description.toLowerCase().includes(search));
+  if (search)     txns = txns.filter(t=>t.description.toLowerCase().includes(search));
   if (filterType) txns = txns.filter(t=>t.type===filterType);
-  if (filterCat) txns = txns.filter(t=>t.categoryId===filterCat);
+  if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
   txns.sort((a,b)=>b.date.localeCompare(a.date));
   const tbody = document.getElementById('txn-tbody');
   const empty = document.getElementById('txn-empty');
   if (!txns.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  tbody.innerHTML = txns.map(t => { const cat = getCat(t.categoryId); return `<tr>
-    <td>${t.date}</td>
-    <td>${t.description}${t.notes?`<br><span style="color:var(--muted);font-size:12px">${t.notes}</span>`:''}</td>
-    <td><span class="badge" style="background:${cat.color}22;color:${cat.color}"><span class="dot" style="background:${cat.color}"></span>${cat.name}</span></td>
-    <td class="${t.type==='income'?'tag-income':'tag-expense'}" style="font-weight:600">${t.type==='income'?'+':'-'}${fmt(t.amount)}</td>
-    <td><button class="btn btn-sm btn-outline" onclick="openModal('edit','${t.id}')">Edit</button> <button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
-  </tr>`; }).join('');
+  tbody.innerHTML = txns.map(t => {
+    const cat = getCat(t.categoryId); const par = getParent(cat);
+    return `<tr>
+      <td>${t.date}</td>
+      <td>${t.description}${t.notes?`<br><span style="color:var(--muted);font-size:12px">${t.notes}</span>`:''}</td>
+      <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
+      <td class="${t.type==='income'?'tag-income':'tag-expense'}" style="font-weight:600">${t.type==='income'?'+':'-'}${fmt(t.amount)}</td>
+      <td><button class="btn btn-sm btn-outline" onclick="openModal('edit','${t.id}')">Edit</button> <button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
+    </tr>`;
+  }).join('');
 }
 
 function deleteTransaction(id) {
@@ -875,8 +952,7 @@ function openModal(mode, id) {
     document.getElementById('txn-notes').value='';
   } else {
     const t = state.transactions.find(x=>x.id===id); if (!t) return;
-    editingTxnId = id;
-    setType(t.type);
+    editingTxnId = id; setType(t.type);
     document.getElementById('txn-amount').value=t.amount;
     document.getElementById('txn-date').value=t.date;
     document.getElementById('txn-desc').value=t.description;
@@ -895,7 +971,14 @@ function setType(type) {
 
 function populateTxnCatSelect() {
   const sel = document.getElementById('txn-cat');
-  sel.innerHTML = state.categories.filter(c=>c.type===currentTxnType).map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  const parents = parentCats(currentTxnType);
+  sel.innerHTML = parents.map(p => {
+    const subs = subCats(p.id);
+    if (subs.length) {
+      return `<optgroup label="${p.name}">${subs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</optgroup>`;
+    }
+    return `<option value="${p.id}">${p.name}</option>`;
+  }).join('');
 }
 
 function saveTransaction() {
@@ -918,44 +1001,65 @@ function saveTransaction() {
 // ===== BUDGETS =====
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
-  const expCats = state.categories.filter(c=>c.type==='expense');
-  const items = expCats.map(cat => {
-    const spent = txns.filter(t=>t.type==='expense'&&t.categoryId===cat.id).reduce((s,t)=>s+t.amount,0);
-    return {cat, spent, limit: state.budgets[cat.id]};
+  const expParents = parentCats('expense');
+  const listEl = document.getElementById('budget-list');
+
+  const items = expParents.map(p => {
+    const spent = catTotal(p.id, txns.filter(t=>t.type==='expense'));
+    const limit = state.budgets[p.id];
+    const subs = subCats(p.id).map(s => ({
+      s, spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0)
+    })).filter(x=>x.spent>0);
+    return {p, spent, limit, subs};
   }).filter(x=>x.limit||x.spent>0);
 
-  const listEl = document.getElementById('budget-list');
   if (!items.length) { listEl.innerHTML = '<div class="empty">No budgets set.</div>'; }
   else {
-    listEl.innerHTML = '<h2 style="margin-bottom:16px;font-size:16px;font-weight:600;">Budget Progress</h2>' + items.map(({cat,spent,limit}) => {
-      const pct = limit ? Math.min((spent/limit)*100,100) : 0;
-      const over = limit && spent > limit;
-      const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : cat.color;
-      return `<div class="budget-item">
-        <div class="budget-header">
-          <span class="badge" style="background:${cat.color}22;color:${cat.color}"><span class="dot" style="background:${cat.color}"></span>${cat.name}</span>
-          <span style="font-size:13px">${fmt(spent)}${limit?' / '+fmt(limit):' (no limit)'}</span>
-        </div>
-        ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>${over?`<div style="color:var(--red);font-size:11px;margin-top:3px">Over by ${fmt(spent-limit)}</div>`:''}`:''}</div>`;
-    }).join('');
+    listEl.innerHTML = '<h2 style="margin-bottom:16px;font-size:16px;font-weight:600;">Budget Progress</h2>' +
+      items.map(({p, spent, limit, subs}, i) => {
+        const pct = limit ? Math.min((spent/limit)*100,100) : 0;
+        const over = limit && spent > limit;
+        const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : p.color;
+        return `<div class="budget-parent">
+          <div class="budget-parent-header" onclick="toggleBudgetSubs(${i})">
+            <span class="badge" style="background:${p.color}22;color:${p.color}"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
+            <span style="font-size:13px;font-weight:600">${fmt(spent)}${limit?' / '+fmt(limit):''} <span style="font-size:11px;color:var(--muted)">${subs.length?'▸':''}</span></span>
+          </div>
+          ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`:''}
+          ${over?`<div style="color:var(--red);font-size:11px;margin-top:2px">Over by ${fmt(spent-limit)}</div>`:''}
+          ${subs.length?`<div class="budget-subs" id="bsubs-${i}">${subs.map(({s,spent:ss})=>`
+            <div class="budget-sub-item">
+              <span>↳ ${s.name}</span><span>${fmt(ss)}</span>
+            </div>`).join('')}</div>`:''}
+        </div>`;
+      }).join('');
   }
 
-  const budgeted = expCats.filter(c=>state.budgets[c.id]);
+  // Budget chart — parent level only
+  const budgeted = expParents.filter(p=>state.budgets[p.id]);
   if (chartBudget) chartBudget.destroy();
   if (budgeted.length) {
+    const bSpent = budgeted.map(p=>catTotal(p.id, txns.filter(t=>t.type==='expense')));
     chartBudget = new Chart(document.getElementById('chart-budget'), {
       type:'bar',
-      data:{labels:budgeted.map(c=>c.name), datasets:[
-        {label:'Spent', data:budgeted.map(c=>txns.filter(t=>t.type==='expense'&&t.categoryId===c.id).reduce((s,t)=>s+t.amount,0)), backgroundColor:budgeted.map(c=>c.color+'aa'), borderColor:budgeted.map(c=>c.color), borderWidth:1},
-        {label:'Budget', data:budgeted.map(c=>state.budgets[c.id]), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
+      data:{labels:budgeted.map(p=>p.name), datasets:[
+        {label:'Spent',  data:bSpent, backgroundColor:budgeted.map(p=>p.color+'aa'), borderColor:budgeted.map(p=>p.color), borderWidth:1},
+        {label:'Budget', data:budgeted.map(p=>state.budgets[p.id]), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
       ]},
       options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b7280'}}}, scales:{x:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}},y:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}}}}
     });
   }
 }
 
+function toggleBudgetSubs(i) {
+  const el = document.getElementById('bsubs-' + i);
+  if (el) el.classList.toggle('open');
+}
+
 function openBudgetModal() {
-  document.getElementById('budget-cat').innerHTML = state.categories.filter(c=>c.type==='expense').map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  // Budget is set at parent level
+  const parents = parentCats('expense');
+  document.getElementById('budget-cat').innerHTML = parents.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   document.getElementById('budget-amount').value='';
   document.getElementById('modal-budget').classList.add('open');
 }
@@ -964,27 +1068,53 @@ function saveBudget() {
   const catId = document.getElementById('budget-cat').value;
   const amt = parseFloat(document.getElementById('budget-amount').value);
   if (!amt) { alert('Enter a budget amount.'); return; }
-  state.budgets[catId] = amt;
-  save(); closeModal('modal-budget'); renderBudgets();
+  state.budgets[catId] = amt; save(); closeModal('modal-budget'); renderBudgets();
 }
 
 // ===== CATEGORIES =====
 function renderCategories() {
-  document.getElementById('cat-tbody').innerHTML = state.categories.map(cat => {
-    const count = state.transactions.filter(t=>t.categoryId===cat.id).length;
-    return `<tr>
-      <td><span style="background:${cat.color};display:inline-block;width:16px;height:16px;border-radius:4px"></span></td>
-      <td>${cat.name}</td>
-      <td><span style="color:${cat.type==='expense'?'var(--red)':'var(--green)'}">${cat.type}</span></td>
-      <td>${count}</td>
-      <td>${count===0?`<button class="btn btn-danger" onclick="deleteCategory('${cat.id}')">Delete</button>`:''}</td>
+  const tbody = document.getElementById('cat-tbody');
+  const parents = state.categories.filter(c => !c.parentId);
+  let html = '';
+  parents.forEach(p => {
+    const subs = subCats(p.id);
+    const txnCount = state.transactions.filter(t => {
+      const ids = [p.id, ...subs.map(s=>s.id)];
+      return ids.includes(t.categoryId);
+    }).length;
+    html += `<tr class="cat-parent-row">
+      <td><span style="background:${p.color};display:inline-block;width:16px;height:16px;border-radius:4px"></span></td>
+      <td style="font-weight:600">${p.name}</td>
+      <td><span style="color:${p.type==='expense'?'var(--red)':'var(--green)'}">${p.type}</span></td>
+      <td>${subs.length}</td>
+      <td>${txnCount}</td>
+      <td>${txnCount===0&&subs.length===0?`<button class="btn btn-danger" onclick="deleteCategory('${p.id}')">Delete</button>`:''}</td>
     </tr>`;
-  }).join('');
+    subs.forEach(s => {
+      const sc = state.transactions.filter(t=>t.categoryId===s.id).length;
+      html += `<tr class="cat-sub-row">
+        <td><span style="background:${s.color};display:inline-block;width:12px;height:12px;border-radius:3px"></span></td>
+        <td style="color:var(--muted)">↳ ${s.name}</td>
+        <td></td><td></td>
+        <td style="color:var(--muted)">${sc}</td>
+        <td>${sc===0?`<button class="btn btn-danger" onclick="deleteCategory('${s.id}')">Delete</button>`:''}</td>
+      </tr>`;
+    });
+  });
+  tbody.innerHTML = html;
+}
+
+function refreshParentSelect() {
+  const type = document.getElementById('cat-type').value;
+  const sel = document.getElementById('cat-parent');
+  sel.innerHTML = '<option value="">— Top-level category —</option>' +
+    parentCats(type).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
 }
 
 function openCatModal() {
   document.getElementById('cat-name').value='';
   document.getElementById('cat-type').value='expense';
+  refreshParentSelect();
   selectedColor = COLORS[0];
   renderColorGrid();
   document.getElementById('modal-cat').classList.add('open');
@@ -1001,14 +1131,17 @@ function selectColor(c) { selectedColor = c; renderColorGrid(); }
 function saveCategory() {
   const name = document.getElementById('cat-name').value.trim();
   const type = document.getElementById('cat-type').value;
+  const parentId = document.getElementById('cat-parent').value || null;
   if (!name) { alert('Enter a category name.'); return; }
-  state.categories.push({id:uid(), name, type, color:selectedColor});
+  // Inherit parent color if sub-category
+  const color = parentId ? getCat(parentId).color : selectedColor;
+  state.categories.push({id:uid(), name, type, color, parentId});
   save(); closeModal('modal-cat'); renderAll();
 }
 
 function deleteCategory(id) {
   if (!confirm('Delete this category?')) return;
-  state.categories = state.categories.filter(c=>c.id!==id);
+  state.categories = state.categories.filter(c=>c.id!==id && c.parentId!==id);
   delete state.budgets[id];
   save(); renderAll();
 }
@@ -1016,16 +1149,19 @@ function deleteCategory(id) {
 // ===== POPULATE SELECTS =====
 function populateCatSelects() {
   populateTxnCatSelect();
+  // Filter dropdown — flat list with parent › sub labels
   const fc = document.getElementById('txn-filter-cat');
-  if (fc) fc.innerHTML = '<option value="">All categories</option>' + state.categories.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+  if (fc) {
+    fc.innerHTML = '<option value="">All categories</option>' +
+      state.categories.map(c=>`<option value="${c.id}">${catDisplayName(c)}</option>`).join('');
+  }
 }
 
 // ===== CSV IMPORT =====
 function handleDrop(ev) {
   ev.preventDefault();
   document.getElementById('drop-zone').classList.remove('drag');
-  const file = ev.dataTransfer.files[0];
-  if (file) readCSV(file);
+  const file = ev.dataTransfer.files[0]; if (file) readCSV(file);
 }
 
 function readCSV(file) {
@@ -1042,14 +1178,13 @@ function readCSV(file) {
 }
 
 function parseCSVLine(line) {
-  const res = []; let cur = '', inQ = false;
+  const res=[]; let cur='', inQ=false;
   for (const ch of line) {
     if (ch==='"') inQ=!inQ;
     else if (ch===',' && !inQ) { res.push(cur.trim()); cur=''; }
     else cur+=ch;
   }
-  res.push(cur.trim());
-  return res;
+  res.push(cur.trim()); return res;
 }
 
 function showCSVPreview() {
@@ -1109,10 +1244,11 @@ function renderRules() {
   empty.style.display='none';
   tbody.innerHTML = rules.map(([p, catId]) => {
     const isKw=p.startsWith('kw:'), label=isKw?p.slice(3):p, cat=getCat(catId);
+    const par=getParent(cat);
     return `<tr>
-      <td><span class="badge" style="background:${isKw?'#6152d0':'#f0f2f8'}22;color:${isKw?'#7c6af7':'#6b7280'};font-size:11px">${isKw?'keyword':'exact'}</span></td>
+      <td><span class="badge" style="background:${isKw?'#6152d022':'#f0f2f8'};color:${isKw?'#7c6af7':'#6b7280'};font-size:11px">${isKw?'keyword':'exact'}</span></td>
       <td style="font-family:monospace;font-size:13px">${label}</td>
-      <td><span class="badge" style="background:${cat.color}22;color:${cat.color}"><span class="dot" style="background:${cat.color}"></span>${cat.name}</span></td>
+      <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
       <td><button class="btn btn-danger" onclick="deleteRule(${JSON.stringify(p)})">Delete</button></td>
     </tr>`;
   }).join('');
@@ -1126,7 +1262,10 @@ function clearLearnedRules() {
 
 function openAddRuleModal() {
   document.getElementById('rule-keyword').value='';
-  document.getElementById('rule-cat').innerHTML = state.categories.map(c=>`<option value="${c.id}">${c.name} (${c.type})</option>`).join('');
+  // Flat list with parent › sub labels
+  document.getElementById('rule-cat').innerHTML = state.categories.map(c=>
+    `<option value="${c.id}">${catDisplayName(c)} (${c.type})</option>`
+  ).join('');
   document.getElementById('modal-rule').classList.add('open');
 }
 
@@ -1138,9 +1277,9 @@ function saveRule() {
 }
 
 function recategorizeAll() {
-  if (!confirm('Re-categorize ALL transactions using current rules? This overwrites existing assignments.')) return;
+  if (!confirm('Re-categorize ALL transactions using current rules?')) return;
   state.transactions.forEach(t=>{ t.categoryId=autoCategorize(t.description,t.type); });
-  save(); renderAll(); alert('Done! All transactions re-categorized.');
+  save(); renderAll(); alert('Done!');
 }
 
 // ===== MODAL =====
@@ -1149,7 +1288,7 @@ document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('cli
 
 // ===== SERVICE WORKER =====
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(e => console.error('SW registration failed:', e));
+  navigator.serviceWorker.register('sw.js').catch(e => console.error('SW failed:', e));
 }
 
 // ===== INIT =====
