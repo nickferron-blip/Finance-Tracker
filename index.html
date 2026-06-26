@@ -565,9 +565,35 @@ async function _loadLocal() {
 }
 
 function _applyDefaults() {
-  if (!state.categories?.length) state.categories = DEFAULT_CATEGORIES;
+  // Migrate: if no categories use the new parent-ID scheme (ids starting with 'p'),
+  // replace entirely with defaults while preserving existing transaction category
+  // assignments by mapping old name → new sub-category id.
+  const hasParentScheme = state.categories?.some(c => c.id && c.id.startsWith('p'));
+  if (!state.categories?.length || !hasParentScheme) {
+    // Build a name→id map from old categories so we can remap transactions
+    const oldMap = {};
+    (state.categories || []).forEach(c => { oldMap[c.name.toLowerCase()] = c.id; });
+    state.categories = DEFAULT_CATEGORIES;
+    // Remap old transaction category IDs to new sub-category IDs by name match
+    if (state.transactions?.length) {
+      const nameToNew = {};
+      DEFAULT_CATEGORIES.forEach(c => { nameToNew[c.name.toLowerCase()] = c.id; });
+      state.transactions.forEach(t => {
+        if (!state.categories.find(c => c.id === t.categoryId)) {
+          // Old id not found — try matching by name via old map reverse lookup
+          const oldCat = Object.entries(oldMap).find(([,id]) => id === t.categoryId);
+          if (oldCat) {
+            const newId = nameToNew[oldCat[0]];
+            if (newId) t.categoryId = newId;
+          }
+        }
+      });
+    }
+  }
   if (!state.budgets) state.budgets = {};
-  if (!Object.keys(state.budgets).length) state.budgets = {...DEFAULT_BUDGETS};
+  // Migrate budgets: if budgets use old 'c' keys, reset to defaults
+  const hasPBudgets = Object.keys(state.budgets).some(k => k.startsWith('p'));
+  if (!Object.keys(state.budgets).length || !hasPBudgets) state.budgets = {...DEFAULT_BUDGETS};
   if (!state.rules) state.rules = {};
   // Ensure all categories have parentId field
   state.categories.forEach(c => { if (!('parentId' in c)) c.parentId = null; });
