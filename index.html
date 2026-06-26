@@ -442,7 +442,18 @@ let currentTxnType = 'expense';
 let csvData = null;
 let csvHeaders = [];
 
-const COLORS = ['#7c6af7','#a78bfa','#22c55e','#4ade80','#f87171','#fb923c','#fbbf24','#facc15','#38bdf8','#818cf8','#f472b6','#e879f9','#2dd4bf','#34d399','#94a3b8','#64748b'];
+const COLORS = [
+  // Purples & blues
+  '#7c6af7','#a78bfa','#6366f1','#818cf8','#38bdf8','#0ea5e9','#3b82f6','#60a5fa',
+  // Greens & teals
+  '#22c55e','#4ade80','#16a34a','#34d399','#2dd4bf','#14b8a6','#059669','#6ee7b7',
+  // Reds, oranges & yellows
+  '#f87171','#ef4444','#fb923c','#f97316','#fbbf24','#facc15','#eab308','#fde047',
+  // Pinks & magentas
+  '#f472b6','#ec4899','#e879f9','#d946ef','#fb7185','#f43f5e','#c026d3','#a21caf',
+  // Neutrals & browns
+  '#94a3b8','#64748b','#475569','#334155','#a8a29e','#78716c','#d97706','#92400e',
+];
 
 // ===== DEFAULT CATEGORIES (parent → sub-category hierarchy) =====
 const DEFAULT_CATEGORIES = [
