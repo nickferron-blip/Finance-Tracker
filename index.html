@@ -1033,30 +1033,45 @@ function renderBudgets() {
   const items = expParents.map(p => {
     const spent = catTotal(p.id, txns.filter(t=>t.type==='expense'));
     const limit = state.budgets[p.id];
+    // Show ALL sub-categories (not just ones with spending)
     const subs = subCats(p.id).map(s => ({
-      s, spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0)
-    })).filter(x=>x.spent>0);
+      s,
+      spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
+      limit: state.budgets[s.id] || null
+    }));
     return {p, spent, limit, subs};
-  }).filter(x=>x.limit||x.spent>0);
+  }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
 
-  if (!items.length) { listEl.innerHTML = '<div class="empty">No budgets set.</div>'; }
+  if (!items.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; }
   else {
     listEl.innerHTML = '<h2 style="margin-bottom:16px;font-size:16px;font-weight:600;">Budget Progress</h2>' +
       items.map(({p, spent, limit, subs}, i) => {
         const pct = limit ? Math.min((spent/limit)*100,100) : 0;
         const over = limit && spent > limit;
         const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : p.color;
+        const hasArrow = subs.length > 0;
         return `<div class="budget-parent">
-          <div class="budget-parent-header" onclick="toggleBudgetSubs(${i})">
+          <div class="budget-parent-header" onclick="${hasArrow?`toggleBudgetSubs(${i})`:''}` style="${hasArrow?'cursor:pointer':'cursor:default'}">
             <span class="badge" style="background:${p.color}22;color:${p.color}"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
-            <span style="font-size:13px;font-weight:600">${fmt(spent)}${limit?' / '+fmt(limit):''} <span style="font-size:11px;color:var(--muted)">${subs.length?'▸':''}</span></span>
+            <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">
+              ${fmt(spent)}${limit?' / '+fmt(limit):''}
+              ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s">▸</span>`:''}
+            </span>
           </div>
           ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`:''}
           ${over?`<div style="color:var(--red);font-size:11px;margin-top:2px">Over by ${fmt(spent-limit)}</div>`:''}
-          ${subs.length?`<div class="budget-subs" id="bsubs-${i}">${subs.map(({s,spent:ss})=>`
-            <div class="budget-sub-item">
-              <span>↳ ${s.name}</span><span>${fmt(ss)}</span>
-            </div>`).join('')}</div>`:''}
+          ${hasArrow?`<div class="budget-subs" id="bsubs-${i}">${subs.map(({s,spent:ss,limit:sl})=>{
+            const spct = sl ? Math.min((ss/sl)*100,100) : 0;
+            const sover = sl && ss > sl;
+            const sbar = sover ? 'var(--red)' : spct > 80 ? 'var(--yellow)' : p.color;
+            return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
+              <div class="budget-sub-item">
+                <span style="color:var(--text)">↳ ${s.name}</span>
+                <span style="font-weight:600">${fmt(ss)}${sl?' / '+fmt(sl):''}</span>
+              </div>
+              ${sl?`<div class="budget-bar-bg" style="height:4px;margin-top:4px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:4px"></div></div>`:''}
+            </div>`;
+          }).join('')}</div>`:''}
         </div>`;
       }).join('');
   }
@@ -1079,7 +1094,10 @@ function renderBudgets() {
 
 function toggleBudgetSubs(i) {
   const el = document.getElementById('bsubs-' + i);
-  if (el) el.classList.toggle('open');
+  if (!el) return;
+  const open = el.classList.toggle('open');
+  const arrow = document.getElementById('arrow-' + i);
+  if (arrow) arrow.style.transform = open ? 'rotate(90deg)' : '';
 }
 
 function openBudgetModal() {
