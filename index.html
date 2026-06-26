@@ -832,8 +832,9 @@ function autoCategorize(description, type) {
       if (found) return found.id;
     }
   }
-  // 4. Fallback: first sub-category of matching type, or first parent
-  return state.categories.find(c => c.parentId && c.type === type)?.id
+  // 4. Fallback: Miscellaneous parent, or first category of matching type
+  return state.categories.find(c => c.name === 'Miscellaneous' && c.type === type)?.id
+      || state.categories.find(c => c.name === 'Miscellaneous')?.id
       || state.categories.find(c => c.type === type)?.id
       || state.categories[0]?.id;
 }
