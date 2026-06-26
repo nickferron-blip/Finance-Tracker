@@ -936,6 +936,15 @@ function renderDashboard() {
 }
 
 // ===== TRANSACTIONS =====
+function buildCatOptions(type) {
+  return parentCats(type).map(p => {
+    const subs = subCats(p.id);
+    if (subs.length)
+      return `<optgroup label="${p.name}">${subs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</optgroup>`;
+    return `<option value="${p.id}">${p.name}</option>`;
+  }).join('');
+}
+
 function renderTransactions() {
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const filterType = document.getElementById('txn-filter-type')?.value||'';
@@ -951,14 +960,75 @@ function renderTransactions() {
   empty.style.display='none';
   tbody.innerHTML = txns.map(t => {
     const cat = getCat(t.categoryId); const par = getParent(cat);
-    return `<tr>
+    const expOpts = buildCatOptions('expense');
+    const incOpts = buildCatOptions('income');
+    const allOpts = expOpts + incOpts;
+    return `<tr id="txnrow-${t.id}">
       <td>${t.date}</td>
-      <td>${t.description}${t.notes?`<br><span style="color:var(--muted);font-size:12px">${t.notes}</span>`:''}</td>
-      <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
-      <td class="${t.type==='income'?'tag-income':'tag-expense'}" style="font-weight:600">${t.type==='income'?'+':'-'}${fmt(t.amount)}</td>
-      <td><button class="btn btn-sm btn-outline" onclick="openModal('edit','${t.id}')">Edit</button> <button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
+      <td>
+        ${t.description}
+        <div style="margin-top:4px">
+          <input
+            value="${(t.notes||'').replace(/"/g,'&quot;')}"
+            placeholder="Add notes…"
+            onchange="inlineUpdateNotes('${t.id}', this.value)"
+            style="font-size:12px;color:var(--muted);background:transparent;border:none;border-bottom:1px dashed var(--border);width:100%;outline:none;padding:2px 0"
+            onfocus="this.style.borderBottomColor='var(--accent)'"
+            onblur="this.style.borderBottomColor='var(--border)'"
+          >
+        </div>
+      </td>
+      <td>
+        <select
+          onchange="inlineUpdateCat('${t.id}', this.value)"
+          style="background:${par.color}22;color:${par.color};border:1px solid ${par.color}44;border-radius:20px;padding:3px 8px;font-size:12px;font-weight:500;cursor:pointer;outline:none;max-width:160px"
+        >${allOpts}</select>
+      </td>
+      <td>
+        <button
+          onclick="inlineToggleType('${t.id}')"
+          class="badge"
+          style="background:${t.type==='income'?'#22c55e22':'#dc262622'};color:${t.type==='income'?'var(--green)':'var(--red)'};border:none;cursor:pointer;font-size:12px;font-weight:600;padding:4px 10px"
+          title="Click to toggle expense/income"
+        >${t.type==='income'?'+ income':'− expense'}</button>
+        <span style="font-weight:700;margin-left:4px">${fmt(t.amount)}</span>
+      </td>
+      <td><button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
     </tr>`;
   }).join('');
+  // Set selected category for each row after render
+  txns.forEach(t => {
+    const sel = document.querySelector(`#txnrow-${t.id} select`);
+    if (sel) sel.value = t.categoryId;
+  });
+}
+
+function inlineUpdateCat(id, catId) {
+  const t = state.transactions.find(x=>x.id===id); if (!t) return;
+  learnRule(t.description, catId);
+  t.categoryId = catId;
+  save();
+  // Re-style the select to match new category color
+  const cat = getCat(catId); const par = getParent(cat);
+  const sel = document.querySelector(`#txnrow-${id} select`);
+  if (sel) {
+    sel.style.background = par.color + '22';
+    sel.style.color = par.color;
+    sel.style.borderColor = par.color + '44';
+  }
+}
+
+function inlineUpdateNotes(id, value) {
+  const t = state.transactions.find(x=>x.id===id); if (!t) return;
+  t.notes = value.trim();
+  save();
+}
+
+function inlineToggleType(id) {
+  const t = state.transactions.find(x=>x.id===id); if (!t) return;
+  t.type = t.type === 'expense' ? 'income' : 'expense';
+  t.categoryId = autoCategorize(t.description, t.type);
+  save(); renderTransactions(); renderDashboard();
 }
 
 function deleteTransaction(id) {
@@ -1050,15 +1120,12 @@ function renderBudgets() {
         const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : p.color;
         const hasArrow = subs.length > 0;
         return `<div class="budget-parent">
-          <div style="display:flex;align-items:center;gap:0;margin-bottom:4px">
-            <div class="budget-parent-header" style="flex:1;${hasArrow?'cursor:pointer':''}" onclick="${hasArrow?`toggleBudgetSubs(${i})`:``}">
-              <span class="badge" style="background:${p.color}22;color:${p.color}"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
+          <div class="budget-parent-header" style="${hasArrow?'cursor:pointer':''}" onclick="${hasArrow?`toggleBudgetSubs(${i})`:``}">
+              <span class="badge" onclick="event.stopPropagation();goToTransactions('${p.id}')" style="background:${p.color}22;color:${p.color};cursor:pointer" title="View transactions"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
               <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">
                 ${fmt(spent)}${limit?' / '+fmt(limit):''}
                 ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s;display:inline-block">▸</span>`:''}
               </span>
-            </div>
-            <button onclick="goToTransactions('${p.id}')" title="View transactions" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:4px 6px;border-radius:6px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">→</button>
           </div>
           ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`:''}
           ${over?`<div style="color:var(--red);font-size:11px;margin-top:2px">Over by ${fmt(spent-limit)}</div>`:''}
@@ -1069,10 +1136,9 @@ function renderBudgets() {
             return `<div style="padding:6px 0 4px;border-bottom:1px solid var(--border)">
               <div style="display:flex;align-items:center;gap:4px">
                 <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
-                  <span style="color:var(--text);font-size:13px">↳ ${s.name}</span>
+                  <span onclick="goToTransactions('${s.id}')" style="color:var(--text);font-size:13px;cursor:pointer" title="View transactions" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">↳ ${s.name}</span>
                   <span style="font-weight:600;font-size:13px;color:${sover?'var(--red)':ss>0?'var(--text)':'var(--muted)'}">${fmt(ss)}${sl?` <span style="font-weight:400;color:var(--muted)">/ ${fmt(sl)}</span>`:''}</span>
                 </div>
-                <button onclick="goToTransactions('${s.id}')" title="View transactions" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:2px 6px;border-radius:4px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">→</button>
               </div>
               ${sl?`<div class="budget-bar-bg" style="height:4px;margin-top:4px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:4px"></div></div>`:''}
             </div>`;
