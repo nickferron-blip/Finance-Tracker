@@ -1225,7 +1225,10 @@ function renderCategories() {
       <td><span style="color:${p.type==='expense'?'var(--red)':'var(--green)'}">${p.type}</span></td>
       <td>${subs.length}</td>
       <td>${txnCount}</td>
-      <td>${txnCount===0&&subs.length===0?`<button class="btn btn-danger" onclick="deleteCategory('${p.id}')">Delete</button>`:''}</td>
+      <td style="display:flex;gap:6px;align-items:center">
+        <button class="btn btn-sm btn-outline" onclick="openCatModal('${p.id}')">Edit</button>
+        ${txnCount===0&&subs.length===0?`<button class="btn btn-danger" onclick="deleteCategory('${p.id}')">Delete</button>`:''}
+      </td>
     </tr>`;
     subs.forEach(s => {
       const sc = state.transactions.filter(t=>t.categoryId===s.id).length;
@@ -1234,7 +1237,10 @@ function renderCategories() {
         <td style="color:var(--muted)">↳ ${s.name}</td>
         <td></td><td></td>
         <td style="color:var(--muted)">${sc}</td>
-        <td>${sc===0?`<button class="btn btn-danger" onclick="deleteCategory('${s.id}')">Delete</button>`:''}</td>
+        <td style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-sm btn-outline" onclick="openCatModal('${s.id}')">Edit</button>
+          ${sc===0?`<button class="btn btn-danger" onclick="deleteCategory('${s.id}')">Delete</button>`:''}
+        </td>
       </tr>`;
     });
   });
@@ -1248,11 +1254,17 @@ function refreshParentSelect() {
     parentCats(type).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
 }
 
-function openCatModal() {
-  document.getElementById('cat-name').value='';
-  document.getElementById('cat-type').value='expense';
+let editingCatId = null;
+
+function openCatModal(id) {
+  editingCatId = id || null;
+  const cat = id ? getCat(id) : null;
+  document.querySelector('#modal-cat h2').textContent = cat ? 'Edit Category' : 'Add Category';
+  document.getElementById('cat-name').value = cat ? cat.name : '';
+  document.getElementById('cat-type').value = cat ? cat.type : 'expense';
   refreshParentSelect();
-  selectedColor = COLORS[0];
+  if (cat?.parentId) document.getElementById('cat-parent').value = cat.parentId;
+  selectedColor = cat ? cat.color : COLORS[0];
   renderColorGrid();
   document.getElementById('modal-cat').classList.add('open');
 }
@@ -1270,9 +1282,13 @@ function saveCategory() {
   const type = document.getElementById('cat-type').value;
   const parentId = document.getElementById('cat-parent').value || null;
   if (!name) { alert('Enter a category name.'); return; }
-  // Inherit parent color if sub-category
   const color = parentId ? getCat(parentId).color : selectedColor;
-  state.categories.push({id:uid(), name, type, color, parentId});
+  if (editingCatId) {
+    const cat = state.categories.find(c => c.id === editingCatId);
+    if (cat) Object.assign(cat, {name, type, color, parentId});
+  } else {
+    state.categories.push({id: uid(), name, type, color, parentId});
+  }
   save(); closeModal('modal-cat'); renderAll();
 }
 
