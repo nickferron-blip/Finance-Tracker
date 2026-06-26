@@ -192,6 +192,10 @@
         </div>
       </div>
       <div class="card mt">
+        <div class="section-header"><h2>Budget vs Actual</h2></div>
+        <div class="chart-wrap" style="height:320px"><canvas id="chart-budget"></canvas></div>
+      </div>
+      <div class="card mt">
         <div class="section-header"><h2>Recent Transactions</h2></div>
         <div id="dash-recent"></div>
       </div>
@@ -231,13 +235,7 @@
         <h2>Monthly Budgets</h2>
         <button class="btn btn-primary" onclick="openBudgetModal()">+ Set Budget</button>
       </div>
-      <div class="grid-2">
-        <div class="card" id="budget-list"></div>
-        <div class="card">
-          <div class="section-header"><h2>Budget vs Actual</h2></div>
-          <div class="chart-wrap"><canvas id="chart-budget"></canvas></div>
-        </div>
-      </div>
+      <div class="card" id="budget-list"></div>
     </div>
 
     <!-- Categories -->
@@ -1147,14 +1145,21 @@ function renderBudgets() {
             const spct = sl ? Math.min((ss/sl)*100,100) : 0;
             const sover = sl && ss > sl;
             const sbar = sover ? 'var(--red)' : spct > 80 ? 'var(--yellow)' : p.color;
-            return `<div style="padding:6px 0 4px;border-bottom:1px solid var(--border)">
-              <div style="display:flex;align-items:center;gap:4px">
-                <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
-                  <span onclick="goToTransactions('${s.id}')" style="color:var(--text);font-size:13px;cursor:pointer" title="View transactions" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">↳ ${s.name}</span>
-                  <span style="font-weight:600;font-size:13px;color:${sover?'var(--red)':ss>0?'var(--text)':'var(--muted)'}">${fmt(ss)}${sl?` <span style="font-weight:400;color:var(--muted)">/ ${fmt(sl)}</span>`:''}</span>
-                </div>
+            const pctLabel = sl ? Math.round(spct) + '%' : '';
+            return `<div style="padding:8px 0 6px;border-bottom:1px solid var(--border)">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
+                <span onclick="goToTransactions('${s.id}')" style="color:var(--text);font-size:13px;cursor:pointer;font-weight:500" title="View transactions" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">↳ ${s.name}</span>
+                <span style="font-size:13px;color:${sover?'var(--red)':ss>0?'var(--text)':'var(--muted)'}">
+                  <span style="font-weight:700">${fmt(ss)}</span>${sl?` <span style="color:var(--muted);font-weight:400">/ ${fmt(sl)}</span>`:'<span style="color:var(--muted);font-size:11px"> no budget</span>'}
+                </span>
               </div>
-              ${sl?`<div class="budget-bar-bg" style="height:4px;margin-top:4px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:4px"></div></div>`:''}
+              ${sl
+                ? `<div style="display:flex;align-items:center;gap:8px">
+                    <div class="budget-bar-bg" style="flex:1;height:6px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:6px"></div></div>
+                    <span style="font-size:11px;color:${sover?'var(--red)':'var(--muted)'};min-width:32px;text-align:right">${sover?'Over':''+pctLabel}</span>
+                   </div>`
+                : ''}
+              ${sover?`<div style="color:var(--red);font-size:11px;margin-top:3px">Over by ${fmt(ss-sl)}</div>`:''}
             </div>`;
           }).join('')}</div>`:''}
         </div>`;
