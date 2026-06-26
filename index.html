@@ -1033,7 +1033,6 @@ function renderBudgets() {
   const items = expParents.map(p => {
     const spent = catTotal(p.id, txns.filter(t=>t.type==='expense'));
     const limit = state.budgets[p.id];
-    // Show ALL sub-categories (not just ones with spending)
     const subs = subCats(p.id).map(s => ({
       s,
       spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
@@ -1051,12 +1050,15 @@ function renderBudgets() {
         const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : p.color;
         const hasArrow = subs.length > 0;
         return `<div class="budget-parent">
-          <div class="budget-parent-header" onclick="${hasArrow?`toggleBudgetSubs(${i})`:''}` style="${hasArrow?'cursor:pointer':'cursor:default'}">
-            <span class="badge" style="background:${p.color}22;color:${p.color}"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
-            <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">
-              ${fmt(spent)}${limit?' / '+fmt(limit):''}
-              ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s">▸</span>`:''}
-            </span>
+          <div style="display:flex;align-items:center;gap:0;margin-bottom:4px">
+            <div class="budget-parent-header" style="flex:1;${hasArrow?'cursor:pointer':''}" onclick="${hasArrow?`toggleBudgetSubs(${i})`:``}">
+              <span class="badge" style="background:${p.color}22;color:${p.color}"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
+              <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px">
+                ${fmt(spent)}${limit?' / '+fmt(limit):''}
+                ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s;display:inline-block">▸</span>`:''}
+              </span>
+            </div>
+            <button onclick="goToTransactions('${p.id}')" title="View transactions" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px;padding:4px 6px;border-radius:6px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">→</button>
           </div>
           ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`:''}
           ${over?`<div style="color:var(--red);font-size:11px;margin-top:2px">Over by ${fmt(spent-limit)}</div>`:''}
@@ -1064,10 +1066,13 @@ function renderBudgets() {
             const spct = sl ? Math.min((ss/sl)*100,100) : 0;
             const sover = sl && ss > sl;
             const sbar = sover ? 'var(--red)' : spct > 80 ? 'var(--yellow)' : p.color;
-            return `<div style="padding:6px 0;border-bottom:1px solid var(--border)">
-              <div class="budget-sub-item">
-                <span style="color:var(--text)">↳ ${s.name}</span>
-                <span style="font-weight:600">${fmt(ss)}${sl?' / '+fmt(sl):''}</span>
+            return `<div style="padding:6px 0 4px;border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;gap:4px">
+                <div style="flex:1;display:flex;justify-content:space-between;align-items:center">
+                  <span style="color:var(--text);font-size:13px">↳ ${s.name}</span>
+                  <span style="font-weight:600;font-size:13px;color:${sover?'var(--red)':ss>0?'var(--text)':'var(--muted)'}">${fmt(ss)}${sl?` <span style="font-weight:400;color:var(--muted)">/ ${fmt(sl)}</span>`:''}</span>
+                </div>
+                <button onclick="goToTransactions('${s.id}')" title="View transactions" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;padding:2px 6px;border-radius:4px;flex-shrink:0" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">→</button>
               </div>
               ${sl?`<div class="budget-bar-bg" style="height:4px;margin-top:4px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:4px"></div></div>`:''}
             </div>`;
@@ -1100,12 +1105,32 @@ function toggleBudgetSubs(i) {
   if (arrow) arrow.style.transform = open ? 'rotate(90deg)' : '';
 }
 
-function openBudgetModal() {
-  // Budget is set at parent level
+function openBudgetModal(preselect) {
+  // Show parents and sub-categories grouped
   const parents = parentCats('expense');
-  document.getElementById('budget-cat').innerHTML = parents.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
-  document.getElementById('budget-amount').value='';
+  document.getElementById('budget-cat').innerHTML = parents.map(p => {
+    const subs = subCats(p.id);
+    const subOpts = subs.map(s=>`<option value="${s.id}"${preselect===s.id?' selected':''}> ↳ ${s.name}</option>`).join('');
+    return `<option value="${p.id}"${preselect===p.id?' selected':''}>${p.name}</option>${subOpts}`;
+  }).join('');
+  if (preselect) {
+    const existing = state.budgets[preselect];
+    document.getElementById('budget-amount').value = existing || '';
+  } else {
+    document.getElementById('budget-amount').value = '';
+  }
   document.getElementById('modal-budget').classList.add('open');
+}
+
+function goToTransactions(catId) {
+  // Switch to transactions page and pre-filter by category
+  const navBtn = [...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Transactions'));
+  showPage('transactions', navBtn);
+  const sel = document.getElementById('txn-filter-cat');
+  if (sel) { sel.value = catId; renderTransactions(); }
+  // Also clear type filter so all transactions show
+  const typeF = document.getElementById('txn-filter-type');
+  if (typeF) typeF.value = '';
 }
 
 function saveBudget() {
