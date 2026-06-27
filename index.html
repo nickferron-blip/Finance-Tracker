@@ -114,15 +114,25 @@
   .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 20px; font-size: 12px; font-weight: 500; }
   .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
 
-  /* ── Budget ── */
-  .budget-parent { margin-bottom: 22px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
-  .budget-parent:last-child { border-bottom: none; }
-  .budget-parent-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  /* ── Budget circles ── */
+  .budget-group { margin-bottom: 36px; }
+  .budget-group-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border); }
+  .budget-group-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
+  .budget-group-totals { font-size: 13px; color: var(--muted); font-weight: 500; }
+  .budget-circles { display: flex; flex-wrap: wrap; gap: 20px; }
+  .budget-circle-item { display: flex; flex-direction: column; align-items: center; gap: 8px; cursor: pointer; width: 90px; }
+  .budget-circle-item:hover .budget-ring-wrap { transform: scale(1.05); }
+  .budget-ring-wrap { position: relative; width: 80px; height: 80px; transition: transform 0.2s; }
+  .budget-ring-wrap svg { position: absolute; top: 0; left: 0; }
+  .budget-ring-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .budget-circle-name { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); text-align: center; line-height: 1.3; }
+  .budget-circle-amount { font-size: 12px; font-weight: 600; text-align: center; }
+  /* legacy bar (kept for compatibility) */
+  .budget-parent { display: none; }
   .budget-bar-bg { background: var(--surface2); border-radius: 99px; height: 7px; overflow: hidden; margin-bottom: 4px; }
   .budget-bar-fill { height: 100%; border-radius: 99px; transition: width 0.4s ease; }
-  .budget-subs { padding-left: 18px; border-left: 2.5px solid var(--copper-light); margin-top: 10px; display: none; }
-  .budget-subs.open { display: block; }
-  .budget-sub-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; color: var(--muted); }
+  .budget-subs { display: none; }
+  .budget-sub-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
 
   /* ── Modal ── */
   .modal-overlay { position: fixed; inset: 0; background: rgba(22,17,46,0.45); backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 100; }
@@ -1155,88 +1165,123 @@ function saveTransaction() {
 }
 
 // ===== BUDGETS =====
+function getCategoryIcon(name) {
+  const n = name.toLowerCase();
+  if (n.includes('mortgage') || n.includes('rent')) return '<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>';
+  if (n.includes('insurance') || n.includes('assurance')) return '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>';
+  if (n.includes('hydro') || n.includes('electric') || n.includes('énergie')) return '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>';
+  if (n.includes('grocer') || n.includes('épicerie') || n.includes('metro') || n.includes('iga') || n.includes('maxi')) return '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/>';
+  if (n.includes('restaurant') || n.includes('dining') || n.includes('lunch') || n.includes('dinner') || n.includes('food')) return '<path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>';
+  if (n.includes('coffee') || n.includes('café') || n.includes('cafe')) return '<path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/>';
+  if (n.includes('alcohol') || n.includes('wine') || n.includes('beer') || n.includes('saq') || n.includes('bar')) return '<path d="M8 22h8M7 10h10M12 15v7"/><path d="M17 2H7l-2 8h12L15 2z"/>';
+  if (n.includes('car') || n.includes('auto') || n.includes('vehicle') || n.includes('vehicule')) return '<rect x="1" y="3" width="15" height="13" rx="2"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>';
+  if (n.includes('fuel') || n.includes('gas') || n.includes('essence') || n.includes('gasoline')) return '<line x1="3" y1="22" x2="15" y2="22"/><line x1="4" y1="9" x2="14" y2="9"/><path d="M14 22V4a2 2 0 00-2-2H6a2 2 0 00-2 2v18"/><path d="M14 13h2a2 2 0 012 2v2a2 2 0 002 2h0a2 2 0 002-2V9.83a2 2 0 00-.59-1.42L18 5"/>';
+  if (n.includes('internet') || n.includes('wifi') || n.includes('telus') || n.includes('bell') || n.includes('videotron')) return '<path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>';
+  if (n.includes('alarm') || n.includes('security') || n.includes('sécurité')) return '<path d="M18 8h1a4 4 0 010 8h-1"/><path d="M2 8h16v9a4 4 0 01-4 4H6a4 4 0 01-4-4V8z"/>';
+  if (n.includes('phone') || n.includes('mobile') || n.includes('cell')) return '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>';
+  if (n.includes('health') || n.includes('medical') || n.includes('doctor') || n.includes('médecin')) return '<path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>';
+  if (n.includes('pharmac') || n.includes('drug') || n.includes('jean coutu') || n.includes('shoppers')) return '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 12h6M12 9v6"/>';
+  if (n.includes('gym') || n.includes('sport') || n.includes('fitness') || n.includes('activity')) return '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>';
+  if (n.includes('school') || n.includes('tuition') || n.includes('sdg') || n.includes('education') || n.includes('reee')) return '<path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>';
+  if (n.includes('saving') || n.includes('rrsp') || n.includes('invest') || n.includes('épargne')) return '<path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>';
+  if (n.includes('tax') || n.includes('impôt')) return '<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>';
+  if (n.includes('vacation') || n.includes('travel') || n.includes('voyage')) return '<path d="M17.8 19.2L16 11l3.5-3.5C21 6 21 4 19 4s-2 1-3.5 2.5L8 10 .8 8.2c-.5-.1-.7.6-.3.9l2 1.5L4 12l-1 1 2 2 2 2 1-1 1.5 1.4c.3.4 1 .2.9-.3L8 14l3.8-3.8L19.2 18l.4 1.8c.1.4.6.4.7 0l.2-.6z"/>';
+  if (n.includes('cloth') || n.includes('fashion') || n.includes('vêtement')) return '<path d="M20.38 3.46L16 2a4 4 0 01-8 0L3.62 3.46a2 2 0 00-1.34 2.23l.58 3.57a1 1 0 00.99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 002-2V10h2.15a1 1 0 00.99-.84l.58-3.57a2 2 0 00-1.34-2.23z"/>';
+  if (n.includes('gift') || n.includes('cadeau')) return '<polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>';
+  if (n.includes('outing') || n.includes('entertainment') || n.includes('summer camp') || n.includes('camp')) return '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>';
+  if (n.includes('personal') || n.includes('hygiene') || n.includes('beauty') || n.includes('personnel')) return '<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>';
+  if (n.includes('salary') || n.includes('payroll') || n.includes('salaire')) return '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>';
+  if (n.includes('loc') || n.includes('loan') || n.includes('credit') || n.includes('debt')) return '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>';
+  return '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>';
+}
+
+function budgetRingSVG(pct, color, icon, over) {
+  const R = 32, C = 2 * Math.PI * R;
+  const filled = Math.min(pct, 100);
+  const offset = C * (1 - filled / 100);
+  const ringColor = over ? '#c93030' : pct > 80 ? '#c47a1a' : color;
+  return `<svg width="80" height="80" viewBox="0 0 80 80" style="display:block">
+    <circle cx="40" cy="40" r="${R}" fill="${color}18" stroke="${color}22" stroke-width="6"/>
+    <circle cx="40" cy="40" r="${R}" fill="none" stroke="${ringColor}" stroke-width="6"
+      stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${offset.toFixed(1)}"
+      stroke-linecap="round" transform="rotate(-90 40 40)" style="transition:stroke-dashoffset 0.5s ease"/>
+    <g transform="translate(40,40)" style="color:${color}">
+      <svg x="-10" y="-10" width="20" height="20" viewBox="0 0 24 24" fill="none"
+        stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${icon}
+      </svg>
+    </g>
+  </svg>`;
+}
+
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const expParents = parentCats('expense');
   const listEl = document.getElementById('budget-list');
 
-  const items = expParents.map(p => {
+  const groups = expParents.map(p => {
     const subs = subCats(p.id).map(s => ({
       s,
       spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
       limit: state.budgets[s.id] || null
     }));
-    // Parent totals are always the rollup of sub-categories
     const spent = subs.reduce((a,x)=>a+x.spent, 0) || catTotal(p.id, txns.filter(t=>t.type==='expense'));
     const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
     return {p, spent, limit, subs};
   }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
 
-  if (!items.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; }
-  else {
-    listEl.innerHTML = '<h2 style="margin-bottom:16px;font-size:16px;font-weight:600;">Budget Progress</h2>' +
-      items.map(({p, spent, limit, subs}, i) => {
-        const pct = limit ? Math.min((spent/limit)*100,100) : 0;
-        const over = limit && spent > limit;
-        const barColor = over ? 'var(--red)' : pct > 80 ? 'var(--yellow)' : p.color;
-        const hasArrow = subs.length > 0;
-        return `<div class="budget-parent">
-          <div class="budget-parent-header" style="${hasArrow?'cursor:pointer':''}" onclick="${hasArrow?`toggleBudgetSubs(${i})`:``}">
-              <span class="badge" onclick="event.stopPropagation();goToTransactions('${p.id}')" style="background:${p.color}22;color:${p.color};cursor:pointer" title="View transactions"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
-              <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
-                ${fmt(spent)}${limit?' / '+fmt(limit):''}
-                ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s;display:inline-block">▸</span>`:''}
-              </span>
-          </div>
-          ${limit?`<div class="budget-bar-bg"><div class="budget-bar-fill" style="width:${pct}%;background:${barColor}"></div></div>`:''}
-          ${over?`<div style="color:var(--red);font-size:11px;margin-top:2px">Over by ${fmt(spent-limit)}</div>`:''}
-          ${hasArrow?`<div class="budget-subs" id="bsubs-${i}">${subs.map(({s,spent:ss,limit:sl})=>{
-            const spct = sl ? Math.min((ss/sl)*100,100) : 0;
-            const sover = sl && ss > sl;
-            const sbar = sover ? 'var(--red)' : spct > 80 ? 'var(--yellow)' : p.color;
-            const pctLabel = sl ? Math.round(spct) + '%' : '';
-            return `<div style="padding:8px 0 6px;border-bottom:1px solid var(--border)">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px">
-                <span onclick="goToTransactions('${s.id}')" style="color:var(--text);font-size:13px;cursor:pointer;font-weight:500" title="View transactions" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--text)'">↳ ${s.name}</span>
-                <span style="font-size:13px;color:${sover?'var(--red)':ss>0?'var(--text)':'var(--muted)'};display:flex;align-items:center;gap:8px"><button onclick="openBudgetModal('${s.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px">Edit</button>
-                  <span style="font-weight:700">${fmt(ss)}</span>${sl?` <span style="color:var(--muted);font-weight:400">/ ${fmt(sl)}</span>`:'<span style="color:var(--muted);font-size:11px"> no budget</span>'}
-                </span>
-              </div>
-              ${sl
-                ? `<div style="display:flex;align-items:center;gap:8px">
-                    <div class="budget-bar-bg" style="flex:1;height:6px"><div class="budget-bar-fill" style="width:${spct}%;background:${sbar};height:6px"></div></div>
-                    <span style="font-size:11px;color:${sover?'var(--red)':'var(--muted)'};min-width:32px;text-align:right">${sover?'Over':''+pctLabel}</span>
-                   </div>`
-                : ''}
-              ${sover?`<div style="color:var(--red);font-size:11px;margin-top:3px">Over by ${fmt(ss-sl)}</div>`:''}
-            </div>`;
-          }).join('')}</div>`:''}
-        </div>`;
-      }).join('');
-  }
+  if (!groups.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; return; }
 
-  // Budget chart — use rollup totals
-  const chartItems = items.filter(x=>x.limit>0);
+  listEl.innerHTML = groups.map(({p, spent, limit, subs}) => {
+    const remaining = limit ? limit - spent : null;
+    const over = remaining !== null && remaining < 0;
+    const totalLabel = limit
+      ? (over ? `<span style="color:var(--red);font-weight:600">Over by ${fmt(-remaining)}</span>` : `<span style="color:var(--muted)">${fmt(remaining)} remaining</span>`)
+      : `<span style="color:var(--muted)">${fmt(spent)} spent</span>`;
+
+    // Show sub-categories as circles; if no subs, show parent as single circle
+    const circles = (subs.length ? subs : [{s:p, spent, limit}]).map(({s, spent:ss, limit:sl}) => {
+      const pct = sl ? (ss / sl) * 100 : 0;
+      const sover = sl && ss > sl;
+      const rem = sl ? sl - ss : null;
+      const icon = getCategoryIcon(s.name);
+      const ring = budgetRingSVG(pct, p.color, icon, sover);
+      const amtLabel = rem !== null
+        ? (sover ? `<span style="color:var(--red)">-${fmt(-rem)}</span>` : `<span style="color:var(--green)">${fmt(rem)} left</span>`)
+        : `<span style="color:var(--muted)">${fmt(ss)}</span>`;
+      return `<div class="budget-circle-item" onclick="goToTransactions('${s.id}')" title="View transactions">
+        <div class="budget-ring-wrap">${ring}</div>
+        <div class="budget-circle-name">${s.name}</div>
+        <div class="budget-circle-amount">${amtLabel}</div>
+        <button onclick="event.stopPropagation();openBudgetModal('${s.id}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 8px;margin-top:2px">Edit</button>
+      </div>`;
+    }).join('');
+
+    return `<div class="budget-group">
+      <div class="budget-group-header">
+        <span class="budget-group-title" style="color:${p.color}">${p.name}</span>
+        <span class="budget-group-totals">${fmt(spent)}${limit ? ' / ' + fmt(limit) : ''} &nbsp;·&nbsp; ${totalLabel}</span>
+      </div>
+      <div class="budget-circles">${circles}</div>
+    </div>`;
+  }).join('');
+
+  // Dashboard budget chart
+  const chartItems = groups.filter(x=>x.limit>0);
   if (chartBudget) chartBudget.destroy();
-  if (chartItems.length) {
+  if (chartItems.length && document.getElementById('chart-budget')) {
     chartBudget = new Chart(document.getElementById('chart-budget'), {
       type:'bar',
       data:{labels:chartItems.map(x=>x.p.name), datasets:[
         {label:'Spent',  data:chartItems.map(x=>x.spent), backgroundColor:chartItems.map(x=>x.p.color+'aa'), borderColor:chartItems.map(x=>x.p.color), borderWidth:1},
         {label:'Budget', data:chartItems.map(x=>x.limit), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
       ]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b7280'}}}, scales:{x:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}},y:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}}}}
+      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8b86a0'}}}, scales:{x:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}},y:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}}}}
     });
   }
 }
 
-function toggleBudgetSubs(i) {
-  const el = document.getElementById('bsubs-' + i);
-  if (!el) return;
-  const open = el.classList.toggle('open');
-  const arrow = document.getElementById('arrow-' + i);
-  if (arrow) arrow.style.transform = open ? 'rotate(90deg)' : '';
-}
+function toggleBudgetSubs(i) {}
 
 function openBudgetModal(preselect) {
   // Only sub-categories can have budgets; parents are rollups
