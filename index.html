@@ -901,19 +901,6 @@ function renderDashboard() {
   netEl.textContent = (net < 0 ? '-' : '') + fmt(net);
   netEl.className = 'stat-value ' + (net >= 0 ? 'green' : 'red');
 
-  // Recent transactions
-  const recent = [...state.transactions].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,5);
-  const recEl = document.getElementById('dash-recent');
-  if (!recent.length) { recEl.innerHTML = '<div class="empty">No transactions yet.</div>'; }
-  else {
-    recEl.innerHTML = `<table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th></tr></thead><tbody>${
-      recent.map(t => { const cat = getCat(t.categoryId); const par = getParent(cat); return `<tr>
-        <td>${t.date}</td><td>${t.description}</td>
-        <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
-        <td class="${t.type==='income'?'tag-income':'tag-expense'}">${t.type==='income'?'+':'-'}${fmt(t.amount)}</td>
-      </tr>`; }).join('')
-    }</tbody></table>`;
-  }
 
   // Donut — group by PARENT category
   const parents = parentCats('expense');
