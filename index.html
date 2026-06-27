@@ -974,9 +974,15 @@ function renderTransactions() {
         </div>
       </td>
       <td>
-        <select
+        <span id="catbadge-${t.id}"
+          onclick="showCatSelect('${t.id}')"
+          style="background:${par.color}22;color:${par.color};border:1px solid ${par.color}44;border-radius:20px;padding:4px 10px;font-size:12px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap"
+          title="Click to change category"
+        ><span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${par.color};flex-shrink:0"></span>${cat.parentId ? `<span style="opacity:0.7">${par.name}</span><span style="opacity:0.5;font-size:10px;margin:0 1px">›</span><span>${cat.name}</span>` : `<span>${par.name}</span>`}</span>
+        <select id="catsel-${t.id}"
           onchange="inlineUpdateCat('${t.id}', this.value)"
-          style="background:${par.color}44;color:${par.color};border:1px solid ${par.color}88;border-radius:20px;padding:3px 8px;font-size:12px;font-weight:500;cursor:pointer;outline:none;max-width:160px"
+          onblur="hideCatSelect('${t.id}')"
+          style="display:none;background:${par.color}22;color:${par.color};border:1px solid ${par.color}88;border-radius:20px;padding:3px 8px;font-size:12px;font-weight:500;cursor:pointer;outline:none;max-width:200px"
         >${allOpts}</select>
       </td>
       <td>
@@ -995,9 +1001,21 @@ function renderTransactions() {
   }).join('');
   // Set selected category for each row after render
   txns.forEach(t => {
-    const sel = document.querySelector(`#txnrow-${t.id} select`);
+    const sel = document.getElementById(`catsel-${t.id}`);
     if (sel) sel.value = t.categoryId;
   });
+}
+
+function showCatSelect(id) {
+  document.getElementById(`catbadge-${id}`).style.display = 'none';
+  const sel = document.getElementById(`catsel-${id}`);
+  sel.style.display = 'inline-block';
+  sel.focus();
+}
+
+function hideCatSelect(id) {
+  document.getElementById(`catsel-${id}`).style.display = 'none';
+  document.getElementById(`catbadge-${id}`).style.display = 'inline-flex';
 }
 
 function inlineUpdateCat(id, catId) {
@@ -1005,14 +1023,16 @@ function inlineUpdateCat(id, catId) {
   learnRule(t.description, catId);
   t.categoryId = catId;
   save();
-  // Re-style the select to match new category color
+  // Rebuild the badge with new category
   const cat = getCat(catId); const par = getParent(cat);
-  const sel = document.querySelector(`#txnrow-${id} select`);
-  if (sel) {
-    sel.style.background = par.color + '44';
-    sel.style.color = par.color;
-    sel.style.borderColor = par.color + '88';
+  const badge = document.getElementById(`catbadge-${id}`);
+  if (badge) {
+    badge.style.background = par.color + '22';
+    badge.style.color = par.color;
+    badge.style.borderColor = par.color + '44';
+    badge.innerHTML = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${par.color};flex-shrink:0"></span>${cat.parentId ? `<span style="opacity:0.7">${par.name}</span><span style="opacity:0.5;font-size:10px;margin:0 1px">›</span><span>${cat.name}</span>` : `<span>${par.name}</span>`}`;
   }
+  hideCatSelect(id);
 }
 
 function inlineUpdateNotes(id, value) {
