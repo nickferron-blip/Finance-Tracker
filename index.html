@@ -12,6 +12,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js" defer></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
@@ -53,6 +54,7 @@
   /* ── Nav ── */
   nav { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 14px; display: flex; flex-direction: column; gap: 3px; box-shadow: var(--shadow); }
   nav button { background: none; border: none; color: var(--muted); padding: 11px 14px; border-radius: var(--radius-sm); cursor: pointer; text-align: left; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; transition: all 0.15s; width: 100%; letter-spacing: 0.01em; }
+  nav button i { width: 17px; height: 17px; stroke-width: 1.75; flex-shrink: 0; }
   nav button:hover { background: var(--surface2); color: var(--accent); }
   nav button.active { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: white; box-shadow: 0 4px 14px rgba(91,63,206,0.3); }
   nav .nav-divider { height: 1px; background: var(--border); margin: 8px 0; }
@@ -203,15 +205,15 @@
   </header>
 
   <nav>
-    <button class="active" onclick="showPage('dashboard', this)">📊 Dashboard</button>
-    <button onclick="showPage('transactions', this)">📋 Transactions</button>
-    <button onclick="showPage('budgets', this)">🎯 Budgets</button>
-    <button onclick="showPage('categories', this)">🏷️ Categories</button>
-    <button onclick="showPage('import', this)">📥 Import CSV</button>
-    <button onclick="showPage('rules', this)">🧠 Auto-categorize</button>
+    <button class="active" onclick="showPage('dashboard', this)"><i data-lucide="layout-dashboard"></i> Dashboard</button>
+    <button onclick="showPage('transactions', this)"><i data-lucide="arrow-left-right"></i> Transactions</button>
+    <button onclick="showPage('budgets', this)"><i data-lucide="target"></i> Budgets</button>
+    <button onclick="showPage('categories', this)"><i data-lucide="tag"></i> Categories</button>
+    <button onclick="showPage('import', this)"><i data-lucide="upload"></i> Import CSV</button>
+    <button onclick="showPage('rules', this)"><i data-lucide="sparkles"></i> Auto-categorize</button>
     <div class="nav-spacer"></div>
-    <button onclick="exportData()" style="font-size:11px; color:var(--muted)">⬇ Export backup</button>
-    <button onclick="document.getElementById('import-data-file').click()" style="font-size:11px; color:var(--muted)">⬆ Import backup</button>
+    <button onclick="exportData()" style="font-size:12px;color:var(--muted)"><i data-lucide="download" style="width:14px;height:14px"></i> Export backup</button>
+    <button onclick="document.getElementById('import-data-file').click()" style="font-size:12px;color:var(--muted)"><i data-lucide="folder-up" style="width:14px;height:14px"></i> Import backup</button>
     <input type="file" id="import-data-file" accept=".json" style="display:none" onchange="importBackup(this)">
   </nav>
 
@@ -1522,6 +1524,7 @@ if ('serviceWorker' in navigator) {
 loadState().then(() => {
   document.getElementById('month-label').textContent = monthStr(state.currentMonth);
   renderAll();
+  if (window.lucide) lucide.createIcons();
 });
 </script>
 </body>
