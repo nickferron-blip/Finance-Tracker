@@ -181,24 +181,15 @@
         <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value red" id="dash-expenses">$0</div></div>
         <div class="stat-card"><div class="stat-label">Net Balance</div><div class="stat-value purple" id="dash-net">$0</div></div>
       </div>
-      <div class="grid-2">
-        <div class="card">
-          <div class="section-header"><h2>Spending by Category</h2></div>
-          <div class="chart-wrap"><canvas id="chart-donut"></canvas></div>
-        </div>
-        <div class="card">
-          <div class="section-header"><h2>Monthly Overview</h2></div>
-          <div class="chart-wrap"><canvas id="chart-bar"></canvas></div>
-        </div>
-      </div>
       <div class="card mt">
         <div class="section-header"><h2>Budget vs Actual</h2></div>
         <div class="chart-wrap" style="height:320px"><canvas id="chart-budget"></canvas></div>
       </div>
       <div class="card mt">
-        <div class="section-header"><h2>Recent Transactions</h2></div>
-        <div id="dash-recent"></div>
+        <div class="section-header"><h2>Monthly Overview</h2></div>
+        <div class="chart-wrap"><canvas id="chart-bar"></canvas></div>
       </div>
+      <canvas id="chart-donut" style="display:none"></canvas>
     </div>
 
     <!-- Transactions -->
