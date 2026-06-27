@@ -408,13 +408,20 @@
       </div>
       <div class="form-group full">
         <label>Parent category (optional — leave blank to create a top-level category)</label>
-        <select id="cat-parent">
+        <select id="cat-parent" onchange="onParentChange()">
           <option value="">— Top-level category —</option>
         </select>
       </div>
-      <div class="form-group full">
+      <div class="form-group full" id="color-section">
         <label>Color</label>
         <div class="color-grid" id="color-grid"></div>
+      </div>
+      <div class="form-group full" id="color-inherited" style="display:none">
+        <label>Color</label>
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+          <span id="inherited-swatch" style="display:inline-block;width:20px;height:20px;border-radius:5px"></span>
+          <span style="color:var(--muted);font-size:13px">Inherited from parent category</span>
+        </div>
       </div>
     </div>
     <div class="modal-footer">
@@ -1113,13 +1120,14 @@ function renderBudgets() {
   const listEl = document.getElementById('budget-list');
 
   const items = expParents.map(p => {
-    const spent = catTotal(p.id, txns.filter(t=>t.type==='expense'));
-    const limit = state.budgets[p.id];
     const subs = subCats(p.id).map(s => ({
       s,
       spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
       limit: state.budgets[s.id] || null
     }));
+    // Parent totals are always the rollup of sub-categories
+    const spent = subs.reduce((a,x)=>a+x.spent, 0) || catTotal(p.id, txns.filter(t=>t.type==='expense'));
+    const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
     return {p, spent, limit, subs};
   }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
 
@@ -1136,7 +1144,6 @@ function renderBudgets() {
               <span class="badge" onclick="event.stopPropagation();goToTransactions('${p.id}')" style="background:${p.color}22;color:${p.color};cursor:pointer" title="View transactions"><span class="dot" style="background:${p.color}"></span>${p.name}</span>
               <span style="font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px">
                 ${fmt(spent)}${limit?' / '+fmt(limit):''}
-                <button onclick="event.stopPropagation();openBudgetModal('${p.id}')" class="btn btn-sm btn-outline" style="font-size:11px;padding:3px 8px">Edit</button>
                 ${hasArrow?`<span id="arrow-${i}" style="font-size:11px;color:var(--muted);transition:transform 0.2s;display:inline-block">▸</span>`:''}
               </span>
           </div>
@@ -1167,16 +1174,15 @@ function renderBudgets() {
       }).join('');
   }
 
-  // Budget chart — parent level only
-  const budgeted = expParents.filter(p=>state.budgets[p.id]);
+  // Budget chart — use rollup totals
+  const chartItems = items.filter(x=>x.limit>0);
   if (chartBudget) chartBudget.destroy();
-  if (budgeted.length) {
-    const bSpent = budgeted.map(p=>catTotal(p.id, txns.filter(t=>t.type==='expense')));
+  if (chartItems.length) {
     chartBudget = new Chart(document.getElementById('chart-budget'), {
       type:'bar',
-      data:{labels:budgeted.map(p=>p.name), datasets:[
-        {label:'Spent',  data:bSpent, backgroundColor:budgeted.map(p=>p.color+'aa'), borderColor:budgeted.map(p=>p.color), borderWidth:1},
-        {label:'Budget', data:budgeted.map(p=>state.budgets[p.id]), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
+      data:{labels:chartItems.map(x=>x.p.name), datasets:[
+        {label:'Spent',  data:chartItems.map(x=>x.spent), backgroundColor:chartItems.map(x=>x.p.color+'aa'), borderColor:chartItems.map(x=>x.p.color), borderWidth:1},
+        {label:'Budget', data:chartItems.map(x=>x.limit), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
       ]},
       options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b7280'}}}, scales:{x:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}},y:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}}}}
     });
@@ -1192,19 +1198,14 @@ function toggleBudgetSubs(i) {
 }
 
 function openBudgetModal(preselect) {
-  // Show parents and sub-categories grouped
+  // Only sub-categories can have budgets; parents are rollups
   const parents = parentCats('expense');
   document.getElementById('budget-cat').innerHTML = parents.map(p => {
     const subs = subCats(p.id);
-    const subOpts = subs.map(s=>`<option value="${s.id}"${preselect===s.id?' selected':''}> ↳ ${s.name}</option>`).join('');
-    return `<option value="${p.id}"${preselect===p.id?' selected':''}>${p.name}</option>${subOpts}`;
+    if (!subs.length) return `<option value="${p.id}"${preselect===p.id?' selected':''}>${p.name}</option>`;
+    return `<optgroup label="${p.name}">${subs.map(s=>`<option value="${s.id}"${preselect===s.id?' selected':''}>${s.name}</option>`).join('')}</optgroup>`;
   }).join('');
-  if (preselect) {
-    const existing = state.budgets[preselect];
-    document.getElementById('budget-amount').value = existing || '';
-  } else {
-    document.getElementById('budget-amount').value = '';
-  }
+  document.getElementById('budget-amount').value = preselect ? (state.budgets[preselect] || '') : '';
   document.getElementById('modal-budget').classList.add('open');
 }
 
@@ -1270,6 +1271,21 @@ function refreshParentSelect() {
   const sel = document.getElementById('cat-parent');
   sel.innerHTML = '<option value="">— Top-level category —</option>' +
     parentCats(type).map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  onParentChange();
+}
+
+function onParentChange() {
+  const parentId = document.getElementById('cat-parent').value;
+  const colorSection = document.getElementById('color-section');
+  const colorInherited = document.getElementById('color-inherited');
+  if (parentId) {
+    colorSection.style.display = 'none';
+    colorInherited.style.display = 'block';
+    document.getElementById('inherited-swatch').style.background = getCat(parentId)?.color || '#94a3b8';
+  } else {
+    colorSection.style.display = 'block';
+    colorInherited.style.display = 'none';
+  }
 }
 
 let editingCatId = null;
