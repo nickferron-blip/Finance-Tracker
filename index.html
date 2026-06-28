@@ -236,7 +236,9 @@
       </div>
       <div class="card mt">
         <div class="section-header"><h2>Budget vs Actual</h2></div>
-        <div class="chart-wrap" style="height:320px"><canvas id="chart-budget"></canvas></div>
+        <div id="budget-toggles" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px"></div>
+        <div class="chart-wrap" style="height:300px"><canvas id="chart-budget"></canvas></div>
+        <div id="budget-summary" style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)"></div>
       </div>
       <div class="card mt">
         <div class="section-header"><h2>Monthly Overview</h2></div>
@@ -1216,38 +1218,47 @@ function budgetRingSVG(pct, color, icon, over) {
 
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
-  const expParents = parentCats('expense');
   const listEl = document.getElementById('budget-list');
 
-  const groups = expParents.map(p => {
-    const subs = subCats(p.id).map(s => ({
-      s,
-      spent: txns.filter(t=>t.type==='expense'&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
-      limit: state.budgets[s.id] || null
-    }));
-    const spent = subs.reduce((a,x)=>a+x.spent, 0) || catTotal(p.id, txns.filter(t=>t.type==='expense'));
-    const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
-    return {p, spent, limit, subs};
-  }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
+  function buildGroups(type) {
+    return parentCats(type).map(p => {
+      const subs = subCats(p.id).map(s => ({
+        s,
+        spent: txns.filter(t=>t.type===type&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
+        limit: state.budgets[s.id] || null
+      }));
+      const spent = subs.reduce((a,x)=>a+x.spent, 0) || catTotal(p.id, txns.filter(t=>t.type===type));
+      const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
+      return {p, spent, limit, subs, type};
+    }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
+  }
 
-  if (!groups.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; return; }
+  const expGroups = buildGroups('expense');
+  const incGroups = buildGroups('income');
+  const allGroups = [...expGroups, ...incGroups];
 
-  listEl.innerHTML = groups.map(({p, spent, limit, subs}) => {
+  if (!allGroups.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; return; }
+
+  function renderGroup({p, spent, limit, subs, type}) {
+    const isIncome = type === 'income';
     const remaining = limit ? limit - spent : null;
-    const over = remaining !== null && remaining < 0;
+    const over = !isIncome && remaining !== null && remaining < 0;
+    const under = isIncome && remaining !== null && spent < limit;
     const totalLabel = limit
-      ? (over ? `<span style="color:var(--red);font-weight:600">Over by ${fmt(-remaining)}</span>` : `<span style="color:var(--muted)">${fmt(remaining)} remaining</span>`)
-      : `<span style="color:var(--muted)">${fmt(spent)} spent</span>`;
+      ? (over ? `<span style="color:var(--red);font-weight:600">Over by ${fmt(-remaining)}</span>`
+        : under ? `<span style="color:var(--muted)">${fmt(remaining)} to target</span>`
+        : `<span style="color:var(--green);font-weight:600">${fmt(remaining >= 0 ? remaining : -remaining)} ${remaining >= 0 ? 'remaining' : 'over'}</span>`)
+      : `<span style="color:var(--muted)">${fmt(spent)} ${isIncome ? 'received' : 'spent'}</span>`;
 
-    // Show sub-categories as circles; if no subs, show parent as single circle
     const circles = (subs.length ? subs : [{s:p, spent, limit}]).map(({s, spent:ss, limit:sl}) => {
       const pct = sl ? (ss / sl) * 100 : 0;
-      const sover = sl && ss > sl;
+      const sover = !isIncome && sl && ss > sl;
       const rem = sl ? sl - ss : null;
       const icon = getCategoryIcon(s.name);
       const ring = budgetRingSVG(pct, p.color, icon, sover);
       const amtLabel = rem !== null
-        ? (sover ? `<span style="color:var(--red)">-${fmt(-rem)}</span>` : `<span style="color:var(--green)">${fmt(rem)} left</span>`)
+        ? (sover ? `<span style="color:var(--red)">-${fmt(-rem)}</span>`
+          : `<span style="color:${isIncome?'var(--green)':'var(--green)'}">${fmt(Math.abs(rem))} ${rem>=0?(isIncome?'to go':'left'):'over'}</span>`)
         : `<span style="color:var(--muted)">${fmt(ss)}</span>`;
       return `<div class="budget-circle-item" onclick="goToTransactions('${s.id}')" title="View transactions">
         <div class="budget-ring-wrap">${ring}</div>
@@ -1264,24 +1275,87 @@ function renderBudgets() {
       </div>
       <div class="budget-circles">${circles}</div>
     </div>`;
-  }).join('');
+  }
 
-  // Dashboard budget chart
-  const chartItems = groups.filter(x=>x.limit>0);
+  const expHtml = expGroups.length ? `<div style="margin-bottom:8px"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">Expenses</h3>${expGroups.map(renderGroup).join('')}</div>` : '';
+  const incHtml = incGroups.length ? `<div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">Income</h3>${incGroups.map(renderGroup).join('')}</div>` : '';
+  listEl.innerHTML = expHtml + incHtml;
+
+  // ── Dashboard Budget vs Actual ──
+  const chartItems = allGroups.filter(x=>x.limit>0);
+  if (!chartItems.length) return;
+
+  // Initialise selection (all on by default)
+  if (!window.budgetSelection) window.budgetSelection = new Set(chartItems.map(x=>x.p.id));
+  // Add any new categories that weren't in the selection yet
+  chartItems.forEach(x=>{ if(!window.budgetSelection.has(x.p.id) && !window.budgetSelectionRemoved?.has(x.p.id)) window.budgetSelection.add(x.p.id); });
+
+  // Toggles
+  const togglesEl = document.getElementById('budget-toggles');
+  if (togglesEl) {
+    togglesEl.innerHTML = chartItems.map(x => {
+      const on = window.budgetSelection.has(x.p.id);
+      return `<button onclick="toggleBudgetCat('${x.p.id}')" style="
+        padding:5px 12px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1.5px solid ${x.p.color};
+        background:${on ? x.p.color : 'transparent'};color:${on ? 'white' : x.p.color};transition:all 0.15s
+      ">${x.p.name}</button>`;
+    }).join('');
+  }
+
+  // Chart
+  const sel = chartItems.filter(x=>window.budgetSelection.has(x.p.id));
   if (chartBudget) chartBudget.destroy();
-  if (chartItems.length && document.getElementById('chart-budget')) {
+  if (sel.length && document.getElementById('chart-budget')) {
     chartBudget = new Chart(document.getElementById('chart-budget'), {
       type:'bar',
-      data:{labels:chartItems.map(x=>x.p.name), datasets:[
-        {label:'Spent',  data:chartItems.map(x=>x.spent), backgroundColor:chartItems.map(x=>x.p.color+'aa'), borderColor:chartItems.map(x=>x.p.color), borderWidth:1},
-        {label:'Budget', data:chartItems.map(x=>x.limit), backgroundColor:'#00000011', borderColor:'#00000033', borderWidth:1},
+      data:{labels:sel.map(x=>x.p.name), datasets:[
+        {label:'Actual', data:sel.map(x=>x.spent), backgroundColor:sel.map(x=>x.p.color+'aa'), borderColor:sel.map(x=>x.p.color), borderWidth:1},
+        {label:'Budget', data:sel.map(x=>x.limit), backgroundColor:'#00000011', borderColor:'#00000044', borderWidth:1, borderDash:[4,4]},
       ]},
-      options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#8b86a0'}}}, scales:{x:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}},y:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}}}}
+      options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b86a0'}}},scales:{x:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}},y:{ticks:{color:'#8b86a0'},grid:{color:'#ebe8f4'}}}}
     });
+  }
+
+  // Summary
+  const summaryEl = document.getElementById('budget-summary');
+  if (summaryEl && sel.length) {
+    const totalBudget = sel.reduce((a,x)=>a+(x.limit||0),0);
+    const totalActual = sel.reduce((a,x)=>a+x.spent,0);
+    const diff = totalBudget - totalActual;
+    const diffColor = diff >= 0 ? 'var(--green)' : 'var(--red)';
+    const diffLabel = diff >= 0 ? `+${fmt(diff)} under budget` : `-${fmt(-diff)} over budget`;
+    summaryEl.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+        <div style="text-align:center">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Total Budget</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(totalBudget)}</div>
+        </div>
+        <div style="text-align:center">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Total Actual</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(totalActual)}</div>
+        </div>
+        <div style="text-align:center;background:${diff>=0?'#f0faf4':'#fdf2f2'};border-radius:12px;padding:12px">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Difference</div>
+          <div style="font-size:22px;font-weight:700;color:${diffColor}">${diffLabel}</div>
+        </div>
+      </div>`;
   }
 }
 
 function toggleBudgetSubs(i) {}
+
+function toggleBudgetCat(id) {
+  if (!window.budgetSelection) return;
+  if (!window.budgetSelectionRemoved) window.budgetSelectionRemoved = new Set();
+  if (window.budgetSelection.has(id)) {
+    window.budgetSelection.delete(id);
+    window.budgetSelectionRemoved.add(id);
+  } else {
+    window.budgetSelection.add(id);
+    window.budgetSelectionRemoved.delete(id);
+  }
+  renderBudgets();
+}
 
 function openBudgetModal(preselect) {
   // Only sub-categories can have budgets; parents are rollups
