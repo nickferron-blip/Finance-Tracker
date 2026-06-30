@@ -260,6 +260,8 @@
             <option value="">All types</option>
             <option value="expense">Expense</option>
             <option value="income">Income</option>
+            <option value="savings">Savings</option>
+            <option value="investment">Investment</option>
           </select>
           <select id="txn-filter-cat" onchange="renderTransactions()" style="max-width:160px">
             <option value="">All categories</option>
@@ -363,6 +365,8 @@
     <div class="type-toggle" style="margin-bottom:16px;">
       <button id="btn-type-expense" class="active" onclick="setType('expense')">Expense</button>
       <button id="btn-type-income" onclick="setType('income')">Income</button>
+      <button id="btn-type-savings" onclick="setType('savings')">Savings</button>
+      <button id="btn-type-investment" onclick="setType('investment')">Invest</button>
     </div>
     <div class="form-grid">
       <div class="form-group">
@@ -450,6 +454,8 @@
         <select id="cat-type" onchange="refreshParentSelect()">
           <option value="expense">Expense</option>
           <option value="income">Income</option>
+          <option value="savings">Savings</option>
+          <option value="investment">Investment</option>
         </select>
       </div>
       <div class="form-group full">
@@ -489,6 +495,18 @@ let state = {
 
 let editingTxnId = null;
 let selectedColor = '#7c6af7';
+// Category/transaction types: expense & income are cash-flow types (count
+// toward Income/Expenses/Net Balance); savings & investment are envelopes —
+// money set aside, tracked in their own Budget section but excluded from
+// the Net Balance calculation.
+const TYPE_META = {
+  expense:    {label: 'Expense',    color: 'var(--red)',    bg: '#dc262622'},
+  income:     {label: 'Income',     color: 'var(--green)',  bg: '#22c55e22'},
+  savings:    {label: 'Savings',    color: '#0ea5e9',       bg: '#0ea5e922'},
+  investment: {label: 'Investment', color: '#7c5fe6',       bg: '#7c5fe622'},
+};
+const TYPE_ORDER = ['expense', 'income', 'savings', 'investment'];
+
 let currentTxnType = 'expense';
 let csvData = null;
 let csvHeaders = [];
@@ -1075,12 +1093,12 @@ function renderTransactions() {
         <button
           onclick="inlineToggleType('${t.id}')"
           class="badge"
-          style="background:${t.type==='income'?'#22c55e22':'#dc262622'};color:${t.type==='income'?'var(--green)':'var(--red)'};border:none;cursor:pointer;font-size:12px;font-weight:600;padding:4px 10px"
-          title="Click to toggle expense/income"
-        >${t.type==='income'?'income':'expense'}</button>
+          style="background:${TYPE_META[t.type].bg};color:${TYPE_META[t.type].color};border:none;cursor:pointer;font-size:12px;font-weight:600;padding:4px 10px"
+          title="Click to cycle type"
+        >${TYPE_META[t.type].label.toLowerCase()}</button>
       </td>
-      <td style="text-align:right;font-weight:700;color:${t.type==='income'?'var(--green)':'var(--red)'}">
-        ${t.type==='income'?'+':'-'}${fmt(t.amount)}
+      <td style="text-align:right;font-weight:700;color:${t.type==='income'?'var(--green)':t.type==='expense'?'var(--red)':TYPE_META[t.type].color}">
+        ${t.type==='income'?'+':'−'}${fmt(t.amount)}
       </td>
       <td><button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
     </tr>`;
@@ -1129,7 +1147,8 @@ function inlineUpdateNotes(id, value) {
 
 function inlineToggleType(id) {
   const t = state.transactions.find(x=>x.id===id); if (!t) return;
-  t.type = t.type === 'expense' ? 'income' : 'expense';
+  const next = TYPE_ORDER[(TYPE_ORDER.indexOf(t.type) + 1) % TYPE_ORDER.length];
+  t.type = next;
   t.categoryId = autoCategorize(t.description, t.type);
   save(); renderTransactions(); renderDashboard();
 }
@@ -1163,8 +1182,7 @@ function openModal(mode, id) {
 
 function setType(type) {
   currentTxnType = type;
-  document.getElementById('btn-type-expense').classList.toggle('active', type==='expense');
-  document.getElementById('btn-type-income').classList.toggle('active', type==='income');
+  TYPE_ORDER.forEach(t => document.getElementById('btn-type-' + t)?.classList.toggle('active', type === t));
   populateTxnCatSelect();
 }
 
@@ -1266,7 +1284,9 @@ function renderBudgets() {
 
   const expGroups = buildGroups('expense');
   const incGroups = buildGroups('income');
-  const allGroups = [...expGroups, ...incGroups];
+  const savGroups = buildGroups('savings');
+  const invGroups = buildGroups('investment');
+  const allGroups = [...expGroups, ...incGroups, ...savGroups, ...invGroups];
 
   if (!allGroups.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; return; }
 
@@ -1308,9 +1328,19 @@ function renderBudgets() {
     </div>`;
   }
 
-  const expHtml = expGroups.length ? `<div style="margin-bottom:8px"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">Expenses</h3>${expGroups.map(renderGroup).join('')}</div>` : '';
-  const incHtml = incGroups.length ? `<div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">Income</h3>${incGroups.map(renderGroup).join('')}</div>` : '';
-  listEl.innerHTML = expHtml + incHtml;
+  function sectionHtml(title, groups, first) {
+    if (!groups.length) return '';
+    const wrap = first
+      ? `<div style="margin-bottom:8px">`
+      : `<div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)">`;
+    return `${wrap}<h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">${title}</h3>${groups.map(renderGroup).join('')}</div>`;
+  }
+
+  listEl.innerHTML =
+    sectionHtml('Expenses', expGroups, true) +
+    sectionHtml('Income', incGroups, !expGroups.length) +
+    sectionHtml('Savings', savGroups, !expGroups.length && !incGroups.length) +
+    sectionHtml('Investments', invGroups, !expGroups.length && !incGroups.length && !savGroups.length);
 
   // ── Dashboard Budget vs Actual ── show every category with spending or a budget
   const chartItems = allGroups.filter(x=>x.limit>0 || x.spent>0);
@@ -1442,7 +1472,7 @@ function renderCategories() {
     html += `<tr class="cat-parent-row">
       <td><span style="background:${p.color};display:inline-block;width:16px;height:16px;border-radius:4px"></span></td>
       <td style="font-weight:600">${p.name}</td>
-      <td><span style="color:${p.type==='expense'?'var(--red)':'var(--green)'}">${p.type}</span></td>
+      <td><span style="color:${TYPE_META[p.type].color}">${p.type}</span></td>
       <td>${subs.length}</td>
       <td>${txnCount}</td>
       <td style="display:flex;gap:6px;align-items:center">
@@ -1520,7 +1550,15 @@ function saveCategory() {
   const color = parentId ? getCat(parentId).color : selectedColor;
   if (editingCatId) {
     const cat = state.categories.find(c => c.id === editingCatId);
-    if (cat) Object.assign(cat, {name, type, color, parentId});
+    if (cat) {
+      const typeChanged = cat.type !== type;
+      Object.assign(cat, {name, type, color, parentId});
+      // Retag existing transactions assigned to this category so their type
+      // matches the category's new type — otherwise budget totals break.
+      if (typeChanged) {
+        state.transactions.forEach(t => { if (t.categoryId === editingCatId) t.type = type; });
+      }
+    }
   } else {
     state.categories.push({id: uid(), name, type, color, parentId});
   }
