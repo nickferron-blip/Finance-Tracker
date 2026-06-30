@@ -1590,10 +1590,15 @@ function showCSVPreview() {
   document.getElementById('csv-tbody-preview').innerHTML = csvData.slice(0,5).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
 }
 
+function txnDupeKey(date, amount, description) {
+  return date + '|' + amount.toFixed(2) + '|' + description.trim().toLowerCase();
+}
+
 function importCSV() {
   const dI=+document.getElementById('map-date').value, descI=+document.getElementById('map-desc').value, aI=+document.getElementById('map-amt').value;
   const invert = document.getElementById('csv-invert').checked;
-  let imported=0, skipped=0;
+  const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
+  let imported=0, skipped=0, duplicates=0;
   for (const row of csvData) {
     const desc=row[descI], dateRaw=row[dI];
     let amt=parseFloat((row[aI]||'').replace(/[^0-9.\-]/g,''));
@@ -1601,11 +1606,14 @@ function importCSV() {
     if(invert)amt=-amt;
     const date=parseDate(dateRaw); if(!date){skipped++;continue;}
     const type=amt>=0?'income':'expense';
+    const key = txnDupeKey(date, Math.abs(amt), desc);
+    if (existing.has(key)) { duplicates++; continue; }
+    existing.add(key);
     state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type), notes:'', type});
     imported++;
   }
   save(); renderAll(); cancelCSV();
-  alert(`Imported ${imported} transactions.${skipped?' '+skipped+' rows skipped.':''}`);
+  alert(`Imported ${imported} transactions.${duplicates?' '+duplicates+' duplicates skipped.':''}${skipped?' '+skipped+' invalid rows skipped.':''}`);
 }
 
 function parseDate(s) {
