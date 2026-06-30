@@ -1281,8 +1281,8 @@ function renderBudgets() {
   const incHtml = incGroups.length ? `<div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)"><h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">Income</h3>${incGroups.map(renderGroup).join('')}</div>` : '';
   listEl.innerHTML = expHtml + incHtml;
 
-  // ── Dashboard Budget vs Actual ──
-  const chartItems = allGroups.filter(x=>x.limit>0);
+  // ── Dashboard Budget vs Actual ── show every category with spending or a budget
+  const chartItems = allGroups.filter(x=>x.limit>0 || x.spent>0);
   if (!chartItems.length) return;
 
   // Initialise selection (all on by default)
