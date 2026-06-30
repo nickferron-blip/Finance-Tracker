@@ -1316,28 +1316,38 @@ function renderBudgets() {
     });
   }
 
-  // Summary
+  // Summary — net income minus expenses, both budgeted and actual
   const summaryEl = document.getElementById('budget-summary');
   if (summaryEl && sel.length) {
-    const totalBudget = sel.reduce((a,x)=>a+(x.limit||0),0);
-    const totalActual = sel.reduce((a,x)=>a+x.spent,0);
-    const diff = totalBudget - totalActual;
+    const incSel = sel.filter(x=>x.type==='income');
+    const expSel = sel.filter(x=>x.type==='expense');
+    const budgetIncome = incSel.reduce((a,x)=>a+(x.limit||0),0);
+    const actualIncome = incSel.reduce((a,x)=>a+x.spent,0);
+    const budgetExpense = expSel.reduce((a,x)=>a+(x.limit||0),0);
+    const actualExpense = expSel.reduce((a,x)=>a+x.spent,0);
+    const netBudget = budgetIncome - budgetExpense;
+    const netActual = actualIncome - actualExpense;
+    const diff = netActual - netBudget;
     const diffColor = diff >= 0 ? 'var(--green)' : 'var(--red)';
-    const diffLabel = diff >= 0 ? `+${fmt(diff)} under budget` : `-${fmt(-diff)} over budget`;
+    const diffLabel = diff >= 0 ? `+${fmt(diff)} ahead of plan` : `-${fmt(-diff)} behind plan`;
     summaryEl.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:14px">
         <div style="text-align:center">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Total Budget</div>
-          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(totalBudget)}</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Net Budgeted</div>
+          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(netBudget)}</div>
         </div>
         <div style="text-align:center">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Total Actual</div>
-          <div style="font-size:22px;font-weight:700;color:var(--text)">${fmt(totalActual)}</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Net Actual</div>
+          <div style="font-size:22px;font-weight:700;color:${netActual>=0?'var(--green)':'var(--red)'}">${fmt(netActual)}</div>
         </div>
         <div style="text-align:center;background:${diff>=0?'#f0faf4':'#fdf2f2'};border-radius:12px;padding:12px">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted);margin-bottom:6px">Difference</div>
           <div style="font-size:22px;font-weight:700;color:${diffColor}">${diffLabel}</div>
         </div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:24px;font-size:12px;color:var(--muted)">
+        <span>Income: <strong style="color:var(--green)">${fmt(actualIncome)}</strong>${budgetIncome?` / ${fmt(budgetIncome)} target`:''}</span>
+        <span>Expenses: <strong style="color:var(--red)">${fmt(actualExpense)}</strong>${budgetExpense?` / ${fmt(budgetExpense)} budget`:''}</span>
       </div>`;
   }
 }
