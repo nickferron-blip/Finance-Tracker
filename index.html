@@ -1239,14 +1239,24 @@ function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const listEl = document.getElementById('budget-list');
 
+  function netSpentForCat(catId, type) {
+    // Net all transactions assigned to this category regardless of their own
+    // type, so refunds/reimbursements (opposite type, same category) offset
+    // the total instead of vanishing from every aggregation.
+    const catTxns = txns.filter(t => t.categoryId === catId);
+    const same   = catTxns.filter(t => t.type === type).reduce((a,t)=>a+t.amount, 0);
+    const offset = catTxns.filter(t => t.type !== type).reduce((a,t)=>a+t.amount, 0);
+    return same - offset;
+  }
+
   function buildGroups(type) {
     return parentCats(type).map(p => {
       const subs = subCats(p.id).map(s => ({
         s,
-        spent: txns.filter(t=>t.type===type&&t.categoryId===s.id).reduce((a,t)=>a+t.amount,0),
+        spent: netSpentForCat(s.id, type),
         limit: state.budgets[s.id] || null
       }));
-      const spent = subs.reduce((a,x)=>a+x.spent, 0) || catTotal(p.id, txns.filter(t=>t.type===type));
+      const spent = subs.reduce((a,x)=>a+x.spent, 0) || netSpentForCat(p.id, type);
       const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
       return {p, spent, limit, subs, type};
     }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
