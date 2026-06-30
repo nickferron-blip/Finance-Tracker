@@ -964,10 +964,22 @@ function renderAll() {
 // ===== DASHBOARD =====
 let chartDonut, chartBar, chartBudget;
 
+function netCatAmount(catId, type, txns) {
+  // Net all transactions assigned to this category regardless of their own
+  // type, so refunds/reimbursements (opposite type, same category) offset
+  // the total instead of being counted separately.
+  const catTxns = txns.filter(t => t.categoryId === catId);
+  const same   = catTxns.filter(t => t.type === type).reduce((a,t)=>a+t.amount, 0);
+  const offset = catTxns.filter(t => t.type !== type).reduce((a,t)=>a+t.amount, 0);
+  return same - offset;
+}
+
 function renderDashboard() {
   const txns = getMonthTxns(state.currentMonth);
-  const income   = txns.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-  const expenses = txns.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  // Net totals per category type (so reimbursements/refunds assigned to the
+  // same category offset spend instead of inflating both sides)
+  const income   = state.categories.filter(c=>c.type==='income').reduce((a,c)=>a+netCatAmount(c.id,'income',txns), 0);
+  const expenses = state.categories.filter(c=>c.type==='expense').reduce((a,c)=>a+netCatAmount(c.id,'expense',txns), 0);
   document.getElementById('dash-income').textContent = fmt(income);
   document.getElementById('dash-expenses').textContent = fmt(expenses);
   const net = income - expenses;
@@ -1239,24 +1251,14 @@ function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const listEl = document.getElementById('budget-list');
 
-  function netSpentForCat(catId, type) {
-    // Net all transactions assigned to this category regardless of their own
-    // type, so refunds/reimbursements (opposite type, same category) offset
-    // the total instead of vanishing from every aggregation.
-    const catTxns = txns.filter(t => t.categoryId === catId);
-    const same   = catTxns.filter(t => t.type === type).reduce((a,t)=>a+t.amount, 0);
-    const offset = catTxns.filter(t => t.type !== type).reduce((a,t)=>a+t.amount, 0);
-    return same - offset;
-  }
-
   function buildGroups(type) {
     return parentCats(type).map(p => {
       const subs = subCats(p.id).map(s => ({
         s,
-        spent: netSpentForCat(s.id, type),
+        spent: netCatAmount(s.id, type, txns),
         limit: state.budgets[s.id] || null
       }));
-      const spent = subs.reduce((a,x)=>a+x.spent, 0) || netSpentForCat(p.id, type);
+      const spent = subs.reduce((a,x)=>a+x.spent, 0) || netCatAmount(p.id, type, txns);
       const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
       return {p, spent, limit, subs, type};
     }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
