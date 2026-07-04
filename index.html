@@ -311,6 +311,17 @@
           <div style="font-size:12px; margin-top:4px;">Supports most bank export formats</div>
         </div>
         <input type="file" id="csv-file" accept=".csv" style="display:none" onchange="readCSV(this.files[0])">
+
+        <div class="card" style="margin-top:20px;background:var(--surface2);border:1px dashed var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+            <div>
+              <div style="font-weight:600;font-size:13px;margin-bottom:2px">Auto-import from Drive</div>
+              <div style="color:var(--muted);font-size:12px">Checks your "Finance Tracker Imports" Google Drive folder for new CSVs (e.g. from Claude reading a Wallet screenshot) and imports them automatically.</div>
+            </div>
+            <button class="btn btn-outline btn-sm" onclick="scanImportFolder(false)">Check now</button>
+          </div>
+        </div>
+
         <div id="csv-preview" style="margin-top:20px; display:none">
           <h3 style="margin-bottom:12px; font-size:14px;">Map CSV Columns</h3>
           <div class="form-grid" id="csv-map-fields"></div>
@@ -609,8 +620,13 @@ const DEFAULT_BUDGETS = {
 
 // ===== PERSISTENCE — Google Drive + IndexedDB cache =====
 const CLIENT_ID = '168405386494-tl577olfbs8sjln89q5rm97jn3euimi7.apps.googleusercontent.com';
-const SCOPES = 'https://www.googleapis.com/auth/drive.appdata';
+// drive.appdata: hidden folder for this app's own data file.
+// drive.readonly: lets the app also scan a regular, visible Drive folder
+// ("Finance Tracker Imports") for CSV files dropped there by other tools
+// (e.g. Claude parsing an Apple Wallet screenshot) and auto-import them.
+const SCOPES = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly';
 const FILE_NAME = 'finance-tracker-data.json';
+const IMPORT_FOLDER_NAME = 'Finance Tracker Imports';
 
 let _accessToken = null;
 let _driveFileId = null;
@@ -732,6 +748,81 @@ function save() {
   _saveTimer = setTimeout(_saveToDrive, 800);
 }
 
+// ===== AUTO-IMPORT — scans a visible Drive folder for CSVs dropped there
+// (e.g. by Claude after reading an Apple Wallet screenshot) and imports them
+// automatically, deduping against existing transactions. =====
+async function _findImportFolderId() {
+  const q = encodeURIComponent(`name='${IMPORT_FOLDER_NAME}' and mimeType='application/vnd.google-apps.folder' and trashed=false`);
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`,
+    {headers: {'Authorization': 'Bearer ' + _accessToken}});
+  const data = await res.json();
+  return data.files?.[0]?.id || null;
+}
+
+function parseAutoImportCSV(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase());
+  const idx = name => headers.findIndex(h => h.includes(name));
+  const dI = Math.max(idx('date'), 0);
+  const descI = Math.max(idx('desc'), 1);
+  const amtI = Math.max(idx('amount'), 2);
+  const typeI = idx('type'); // optional, -1 if absent
+  const rows = [];
+  for (const line of lines.slice(1)) {
+    const cells = parseCSVLine(line);
+    const dateRaw = cells[dI], desc = cells[descI];
+    let amt = parseFloat((cells[amtI] || '').replace(/[^0-9.\-]/g, ''));
+    if (!dateRaw || !desc || isNaN(amt)) continue;
+    const date = parseDate(dateRaw);
+    if (!date) continue;
+    const type = (typeI >= 0 && cells[typeI]) ? cells[typeI].toLowerCase().trim() : 'expense';
+    rows.push({date, description: desc, amount: Math.abs(amt), type: TYPE_ORDER.includes(type) ? type : 'expense'});
+  }
+  return rows;
+}
+
+async function scanImportFolder(silent) {
+  if (!_accessToken) return;
+  try {
+    const folderId = await _findImportFolderId();
+    if (!folderId) return;
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and (name contains '.csv' or mimeType='text/csv')`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name)`,
+      {headers: {'Authorization': 'Bearer ' + _accessToken}});
+    const data = await res.json();
+    const files = (data.files || []).filter(f => !state.importedFileIds?.includes(f.id));
+    if (!files.length) { if (!silent) alert('No new files found in "' + IMPORT_FOLDER_NAME + '".'); return; }
+
+    if (!state.importedFileIds) state.importedFileIds = [];
+    const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
+    let imported = 0, duplicates = 0;
+
+    for (const file of files) {
+      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
+        {headers: {'Authorization': 'Bearer ' + _accessToken}});
+      const text = await fileRes.text();
+      const rows = parseAutoImportCSV(text);
+      for (const r of rows) {
+        const key = txnDupeKey(r.date, r.amount, r.description);
+        if (existing.has(key)) { duplicates++; continue; }
+        existing.add(key);
+        state.transactions.push({
+          id: uid(), amount: r.amount, date: r.date, description: r.description,
+          categoryId: autoCategorize(r.description, r.type), notes: '', type: r.type
+        });
+        imported++;
+      }
+      state.importedFileIds.push(file.id);
+    }
+
+    if (imported > 0) { save(); renderAll(); }
+    if (!silent || imported > 0) {
+      alert(`Auto-import: ${imported} transaction${imported===1?'':'s'} imported${duplicates?`, ${duplicates} duplicate${duplicates===1?'':'s'} skipped`:''}.`);
+    }
+  } catch(e) { console.error('Auto-import scan failed', e); }
+}
+
 function _updateAuthUI(signedIn) {
   document.getElementById('btn-signin').style.display = signedIn ? 'none' : 'flex';
   document.getElementById('btn-signout').style.display = signedIn ? 'flex' : 'none';
@@ -750,6 +841,7 @@ async function signIn() {
       await _saveLocal();
       document.getElementById('month-label').textContent = monthStr(state.currentMonth);
       renderAll();
+      scanImportFolder(true);
     }
   });
   client.requestAccessToken();
@@ -776,6 +868,7 @@ async function loadState() {
             await _loadFromDrive();
             _applyDefaults();
             await _saveLocal();
+            scanImportFolder(true);
           }
           res();
         }
