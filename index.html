@@ -546,6 +546,8 @@
           <option value="once">Once</option>
           <option value="weekly">Weekly</option>
           <option value="biweekly">Every 2 weeks</option>
+          <option value="bimonthly_1_15">Twice a month (1st &amp; 15th)</option>
+          <option value="bimonthly_15_last">Twice a month (15th &amp; last day)</option>
           <option value="monthly">Monthly</option>
           <option value="yearly">Yearly</option>
           <option value="custom">Custom</option>
@@ -1175,12 +1177,64 @@ function addMonthsClamped(dateStr, n) {
   return d.toISOString().slice(0, 10);
 }
 
+// Twice-a-month patterns: fixed calendar days per month, not a fixed interval.
+function lastDayOfMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+function bimonthlyPatternDays(variant, year, monthIndex) {
+  return variant === '1_15' ? [1, 15] : [15, lastDayOfMonth(year, monthIndex)];
+}
+function bimonthlyDateStr(year, monthIndex, day) {
+  return new Date(year, monthIndex, day).toISOString().slice(0, 10);
+}
+function bimonthlyVariant(kind) { return kind === 'bimonthly_1_15' ? '1_15' : '15_last'; }
+
+// First pattern occurrence on/after refDate (used to establish the initial due date)
+function firstBimonthlyOnOrAfter(variant, refDate) {
+  const d = new Date(refDate + 'T00:00:00');
+  let year = d.getFullYear(), month = d.getMonth();
+  for (let i = 0; i < 24; i++) {
+    const [d1, d2] = bimonthlyPatternDays(variant, year, month);
+    const s1 = bimonthlyDateStr(year, month, d1), s2 = bimonthlyDateStr(year, month, d2);
+    if (s1 >= refDate) return s1;
+    if (s2 >= refDate) return s2;
+    month++; if (month > 11) { month = 0; year++; }
+  }
+  return refDate;
+}
+
+// Next pattern occurrence strictly after fromDate
+function nextBimonthlyAfter(variant, fromDate) {
+  const d = new Date(fromDate + 'T00:00:00');
+  let year = d.getFullYear(), month = d.getMonth();
+  for (let i = 0; i < 24; i++) {
+    const [d1, d2] = bimonthlyPatternDays(variant, year, month);
+    const s1 = bimonthlyDateStr(year, month, d1), s2 = bimonthlyDateStr(year, month, d2);
+    if (s1 > fromDate) return s1;
+    if (s2 > fromDate) return s2;
+    month++; if (month > 11) { month = 0; year++; }
+  }
+  return fromDate;
+}
+
+// The first due date for a recurring item — for fixed-day-of-month patterns
+// this snaps the chosen start date forward to the nearest pattern day,
+// since the user's start date may not itself land on the 1st/15th/last day.
+function initialDue(item) {
+  const s = item.schedule;
+  if (s.kind === 'bimonthly_1_15')    return firstBimonthlyOnOrAfter('1_15', s.startDate);
+  if (s.kind === 'bimonthly_15_last') return firstBimonthlyOnOrAfter('15_last', s.startDate);
+  return s.startDate;
+}
+
 function nextOccurrence(item, fromDate) {
   const { schedule } = item;
   switch (schedule.kind) {
     case 'once':      return null;
     case 'weekly':    return addDays(fromDate, 7);
     case 'biweekly':  return addDays(fromDate, 14);
+    case 'bimonthly_1_15':    return nextBimonthlyAfter('1_15', fromDate);
+    case 'bimonthly_15_last': return nextBimonthlyAfter('15_last', fromDate);
     case 'monthly':   return addMonthsClamped(fromDate, 1);
     case 'yearly':    return addMonthsClamped(fromDate, 12);
     case 'custom': {
@@ -1198,6 +1252,8 @@ function recurringLabel(item) {
     case 'once':     return 'Once on ' + dateFmt(s.startDate);
     case 'weekly':   return 'Weekly, starting ' + dateFmt(s.startDate);
     case 'biweekly': return 'Every 2 weeks, starting ' + dateFmt(s.startDate);
+    case 'bimonthly_1_15':    return 'Twice a month (1st & 15th), starting ' + dateFmt(s.startDate);
+    case 'bimonthly_15_last': return 'Twice a month (15th & last day), starting ' + dateFmt(s.startDate);
     case 'monthly':  return 'Monthly, starting ' + dateFmt(s.startDate);
     case 'yearly':   return 'Yearly, starting ' + dateFmt(s.startDate);
     case 'custom':   return `Every ${s.customInterval} ${s.customUnit}, starting ${dateFmt(s.startDate)}`;
@@ -1216,7 +1272,7 @@ function processRecurringItems() {
   for (const item of state.recurringItems) {
     if (!item.active) continue;
     let cursor = item.lastPostedDate || null;
-    let due = cursor ? nextOccurrence(item, cursor) : item.schedule.startDate;
+    let due = cursor ? nextOccurrence(item, cursor) : initialDue(item);
     let guard = 0;
     while (due && due <= today && guard++ < 120) {
       state.transactions.push({
@@ -1243,7 +1299,7 @@ function renderCashflow() {
     tbody.innerHTML = items.map(item => {
       const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
       const nextDue = item.active
-        ? (item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : item.schedule.startDate)
+        ? (item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : initialDue(item))
         : null;
       return `<tr>
         <td>${item.description}</td>
@@ -1288,7 +1344,7 @@ function renderDashboardCashflow() {
 
   const dueList = items
     .filter(i => i.active)
-    .map(i => ({item: i, due: i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : i.schedule.startDate}))
+    .map(i => ({item: i, due: i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : initialDue(i)}))
     .filter(x => x.due);
 
   const nextPayday = dueList
