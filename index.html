@@ -231,7 +231,14 @@
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
       <div class="card" style="margin-bottom:20px">
-        <div class="section-header"><h2>Upcoming Cashflow</h2><button class="btn btn-outline btn-sm" onclick="goToCashflowPage()">Manage</button></div>
+        <div class="section-header">
+          <h2>Upcoming Cashflow</h2>
+          <div style="display:flex;gap:8px;align-items:center">
+            <span id="dash-balance" style="font-size:14px;font-weight:700"></span>
+            <button class="btn btn-outline btn-sm" onclick="openBalanceModal()">Set balance</button>
+            <button class="btn btn-outline btn-sm" onclick="goToCashflowPage()">Manage</button>
+          </div>
+        </div>
         <div id="dash-cashflow"></div>
       </div>
       <div class="grid-3">
@@ -571,6 +578,24 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-recurring')">Cancel</button>
       <button class="btn btn-primary" onclick="saveRecurringItem()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Set Balance Modal -->
+<div class="modal-overlay" id="modal-balance">
+  <div class="modal">
+    <h2>Set Current Balance</h2>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">Enter what's actually in your bank account right now. The app will track your balance forward from today using your transactions, and project it against upcoming charges. Reset it anytime to re-sync with your real account.</p>
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>Current balance ($)</label>
+        <input type="number" id="balance-amount" placeholder="0.00" step="0.01">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-balance')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveBalanceAnchor()">Save</button>
     </div>
   </div>
 </div>
@@ -1318,16 +1343,21 @@ function renderCashflow() {
 
 }
 
-function upcomingItemRow({item, due}) {
+function upcomingItemRow({item, due, bal}) {
   const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
   const color = par ? par.color : 'var(--muted)';
+  const balHtml = bal === undefined ? '' :
+    `<span style="font-size:11px;color:${bal < 0 ? 'var(--red)' : 'var(--muted)'};min-width:70px;text-align:right">${bal < 0 ? '-' : ''}${fmt(bal)}</span>`;
   return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
     <div style="display:flex;align-items:center;gap:10px;min-width:0">
       <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
       <span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.description}</span>
       <span style="color:var(--muted);font-size:12px;flex-shrink:0">${due}</span>
     </div>
-    <span style="font-weight:700;color:${TYPE_META[item.type].color};flex-shrink:0;margin-left:12px">${item.type==='income'?'+':'−'}${fmt(item.amount)}</span>
+    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;margin-left:12px">
+      <span style="font-weight:700;color:${TYPE_META[item.type].color}">${item.type==='income'?'+':'−'}${fmt(item.amount)}</span>
+      ${balHtml}
+    </div>
   </div>`;
 }
 
@@ -1336,50 +1366,109 @@ function endOfMonthStr(dateStr) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 }
 
+// ===== BALANCE ANCHOR =====
+// The user sets their real bank balance once; the app tracks it forward:
+// anchor amount + income − (expense/savings/investment) for every transaction
+// dated after the anchor date.
+function currentBalance() {
+  const a = state.balanceAnchor;
+  if (!a) return null;
+  let bal = a.amount;
+  for (const t of state.transactions) {
+    if (t.date > a.date) bal += (t.type === 'income' ? t.amount : -t.amount);
+  }
+  return bal;
+}
+
+function openBalanceModal() {
+  const bal = currentBalance();
+  document.getElementById('balance-amount').value = bal !== null ? bal.toFixed(2) : '';
+  document.getElementById('modal-balance').classList.add('open');
+}
+
+function saveBalanceAnchor() {
+  const amt = parseFloat(document.getElementById('balance-amount').value);
+  if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+  state.balanceAnchor = { amount: amt, date: new Date().toISOString().slice(0, 10) };
+  save(); closeModal('modal-balance'); renderDashboard();
+}
+
+// Every occurrence of an active recurring item due in (today, horizon]
+function expandOccurrences(item, horizon) {
+  const out = [];
+  let due = item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : initialDue(item);
+  let guard = 0;
+  while (due && due <= horizon && guard++ < 120) {
+    out.push({item, due});
+    if (item.schedule.kind === 'once') break;
+    due = nextOccurrence(item, due);
+  }
+  return out;
+}
+
 function renderDashboardCashflow() {
   const el = document.getElementById('dash-cashflow');
   if (!el) return;
   const today = new Date().toISOString().slice(0, 10);
-  const items = state.recurringItems || [];
+  const items = (state.recurringItems || []).filter(i => i.active);
+  const monthEnd = endOfMonthStr(today);
 
-  const dueList = items
-    .filter(i => i.active)
-    .map(i => ({item: i, due: i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : initialDue(i)}))
-    .filter(x => x.due);
-
-  const nextPayday = dueList
-    .filter(x => x.item.type === 'income')
-    .map(x => x.due)
+  // Next payday = earliest upcoming income occurrence
+  const nextPayday = items
+    .filter(i => i.type === 'income')
+    .map(i => i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : initialDue(i))
+    .filter(Boolean)
     .sort()[0] || null;
 
-  const untilPayday = nextPayday
-    ? dueList.filter(x => x.due <= nextPayday).sort((a,b) => a.due.localeCompare(b.due))
-    : [];
+  // Expand every occurrence up to the farthest horizon we display
+  const horizon = nextPayday && nextPayday > monthEnd ? nextPayday : monthEnd;
+  const occurrences = items
+    .flatMap(i => expandOccurrences(i, horizon))
+    .sort((a,b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
 
-  const monthEnd = endOfMonthStr(today);
-  const untilMonthEnd = dueList
-    .filter(x => x.due <= monthEnd)
-    .sort((a,b) => a.due.localeCompare(b.due));
+  // Running balance threaded through occurrences in date order
+  const startBal = currentBalance();
+  let running = startBal;
+  occurrences.forEach(o => {
+    if (running !== null) {
+      running += o.item.type === 'income' ? o.item.amount : -o.item.amount;
+      o.bal = running;
+    }
+  });
+
+  // Header balance display
+  const balEl = document.getElementById('dash-balance');
+  if (balEl) {
+    balEl.textContent = startBal !== null ? (startBal < 0 ? '-' : '') + fmt(startBal) : '';
+    balEl.style.color = startBal !== null && startBal < 0 ? 'var(--red)' : 'var(--green)';
+  }
+
+  const untilPayday = nextPayday ? occurrences.filter(o => o.due <= nextPayday) : [];
+  const untilMonthEnd = occurrences.filter(o => o.due <= monthEnd);
+
+  const colTitle = (label, list) => {
+    const end = list.length && list[list.length-1].bal !== undefined ? list[list.length-1].bal : null;
+    const endHtml = end === null ? '' :
+      `<span style="font-weight:700;color:${end < 0 ? 'var(--red)' : 'var(--green)'}">${end < 0 ? '-' : ''}${fmt(end)}</span>`;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted)">${label}</h3>${endHtml}
+    </div>`;
+  };
 
   const paydayHtml = nextPayday
-    ? untilPayday.map(upcomingItemRow).join('')
-    : '<div class="empty" style="padding:16px 0">No upcoming income scheduled.</div>';
+    ? colTitle('Until next payday', untilPayday) + untilPayday.map(upcomingItemRow).join('')
+    : colTitle('Until next payday', []) + '<div class="empty" style="padding:16px 0">No upcoming income scheduled.</div>';
 
-  const monthHtml = untilMonthEnd.length
+  const monthHtml = colTitle('Until end of month', untilMonthEnd) + (untilMonthEnd.length
     ? untilMonthEnd.map(upcomingItemRow).join('')
-    : '<div class="empty" style="padding:16px 0">Nothing expected before month-end.</div>';
+    : '<div class="empty" style="padding:16px 0">Nothing expected before month-end.</div>');
 
   el.innerHTML = `
     <div class="grid-2">
-      <div>
-        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">Until next payday</h3>
-        ${paydayHtml}
-      </div>
-      <div>
-        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">Until end of month</h3>
-        ${monthHtml}
-      </div>
-    </div>`;
+      <div>${paydayHtml}</div>
+      <div>${monthHtml}</div>
+    </div>
+    ${startBal === null ? '<div style="margin-top:12px;font-size:12px;color:var(--muted)">Tip: click "Set balance" to enter your real bank balance — the app will project it against these upcoming charges.</div>' : ''}`;
 }
 
 function setRecurringType(type) {
