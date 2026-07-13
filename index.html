@@ -230,6 +230,10 @@
   <main>
     <!-- Dashboard -->
     <div id="page-dashboard" class="page active">
+      <div class="card" style="margin-bottom:20px">
+        <div class="section-header"><h2>Upcoming Cashflow</h2><button class="btn btn-outline btn-sm" onclick="goToCashflowPage()">Manage</button></div>
+        <div id="dash-cashflow"></div>
+      </div>
       <div class="grid-3">
         <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value green" id="dash-income">$0</div></div>
         <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value red" id="dash-expenses">$0</div></div>
@@ -292,10 +296,6 @@
       <div class="section-header">
         <h2>Cashflow</h2>
         <button class="btn btn-primary" onclick="openRecurringModal()">+ Add Expected Charge</button>
-      </div>
-      <div class="card" style="margin-bottom:20px">
-        <div class="section-header"><h2 style="font-size:14px">Upcoming (next 30 days)</h2></div>
-        <div id="cashflow-upcoming"></div>
       </div>
       <div class="card">
         <div class="section-header"><h2 style="font-size:14px">Recurring &amp; Expected Charges</h2></div>
@@ -1260,31 +1260,70 @@ function renderCashflow() {
     }).join('');
   }
 
-  // Upcoming preview — next occurrence per active item within 30 days, not yet posted
-  const upcomingEl = document.getElementById('cashflow-upcoming');
-  const horizon = addDays(new Date().toISOString().slice(0,10), 30);
-  const upcoming = items
+}
+
+function upcomingItemRow({item, due}) {
+  const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
+  const color = par ? par.color : 'var(--muted)';
+  return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+      <span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${item.description}</span>
+      <span style="color:var(--muted);font-size:12px;flex-shrink:0">${due}</span>
+    </div>
+    <span style="font-weight:700;color:${TYPE_META[item.type].color};flex-shrink:0;margin-left:12px">${item.type==='income'?'+':'−'}${fmt(item.amount)}</span>
+  </div>`;
+}
+
+function endOfMonthStr(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+}
+
+function renderDashboardCashflow() {
+  const el = document.getElementById('dash-cashflow');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const items = state.recurringItems || [];
+
+  const dueList = items
     .filter(i => i.active)
     .map(i => ({item: i, due: i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : i.schedule.startDate}))
-    .filter(x => x.due && x.due <= horizon)
+    .filter(x => x.due);
+
+  const nextPayday = dueList
+    .filter(x => x.item.type === 'income')
+    .map(x => x.due)
+    .sort()[0] || null;
+
+  const untilPayday = nextPayday
+    ? dueList.filter(x => x.due <= nextPayday).sort((a,b) => a.due.localeCompare(b.due))
+    : [];
+
+  const monthEnd = endOfMonthStr(today);
+  const untilMonthEnd = dueList
+    .filter(x => x.due <= monthEnd)
     .sort((a,b) => a.due.localeCompare(b.due));
 
-  if (!upcoming.length) {
-    upcomingEl.innerHTML = '<div class="empty" style="padding:24px">Nothing expected in the next 30 days.</div>';
-  } else {
-    upcomingEl.innerHTML = upcoming.map(({item, due}) => {
-      const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
-      const color = par ? par.color : 'var(--muted)';
-      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
-        <div style="display:flex;align-items:center;gap:10px">
-          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-          <span style="font-weight:500">${item.description}</span>
-          <span style="color:var(--muted);font-size:12px">${due}</span>
-        </div>
-        <span style="font-weight:700;color:${TYPE_META[item.type].color}">${item.type==='income'?'+':'−'}${fmt(item.amount)}</span>
-      </div>`;
-    }).join('');
-  }
+  const paydayHtml = nextPayday
+    ? untilPayday.map(upcomingItemRow).join('')
+    : '<div class="empty" style="padding:16px 0">No upcoming income scheduled.</div>';
+
+  const monthHtml = untilMonthEnd.length
+    ? untilMonthEnd.map(upcomingItemRow).join('')
+    : '<div class="empty" style="padding:16px 0">Nothing expected before month-end.</div>';
+
+  el.innerHTML = `
+    <div class="grid-2">
+      <div>
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">Until next payday</h3>
+        ${paydayHtml}
+      </div>
+      <div>
+        <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);margin-bottom:10px">Until end of month</h3>
+        ${monthHtml}
+      </div>
+    </div>`;
 }
 
 function setRecurringType(type) {
@@ -1372,7 +1411,13 @@ function netCatAmount(catId, type, txns) {
   return same - offset;
 }
 
+function goToCashflowPage() {
+  const btn = [...document.querySelectorAll('nav button')].find(b => b.textContent.includes('Cashflow'));
+  showPage('cashflow', btn);
+}
+
 function renderDashboard() {
+  renderDashboardCashflow();
   const txns = getMonthTxns(state.currentMonth);
   // Net totals per category type (so reimbursements/refunds assigned to the
   // same category offset spend instead of inflating both sides)
