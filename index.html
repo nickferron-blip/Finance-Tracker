@@ -217,6 +217,7 @@
     <button class="active" onclick="showPage('dashboard', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</button>
     <button onclick="showPage('transactions', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M17 8l4-4-4-4M17 24l4-4-4-4" transform="translate(0,-6)"/></svg> Transactions</button>
     <button onclick="showPage('budgets', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg> Budgets</button>
+    <button onclick="showPage('cashflow', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 014-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg> Cashflow</button>
     <button onclick="showPage('categories', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg> Categories</button>
     <button onclick="showPage('import', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import CSV</button>
     <button onclick="showPage('rules', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg> Auto-categorize</button>
@@ -284,6 +285,28 @@
         <button class="btn btn-primary" onclick="openBudgetModal()">+ Set Budget</button>
       </div>
       <div class="card" id="budget-list"></div>
+    </div>
+
+    <!-- Cashflow -->
+    <div id="page-cashflow" class="page">
+      <div class="section-header">
+        <h2>Cashflow</h2>
+        <button class="btn btn-primary" onclick="openRecurringModal()">+ Add Expected Charge</button>
+      </div>
+      <div class="card" style="margin-bottom:20px">
+        <div class="section-header"><h2 style="font-size:14px">Upcoming (next 30 days)</h2></div>
+        <div id="cashflow-upcoming"></div>
+      </div>
+      <div class="card">
+        <div class="section-header"><h2 style="font-size:14px">Recurring &amp; Expected Charges</h2></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Description</th><th>Category</th><th style="text-align:right">Amount</th><th>Schedule</th><th>Next Due</th><th>Active</th><th></th></tr></thead>
+            <tbody id="recurring-tbody"></tbody>
+          </table>
+        </div>
+        <div id="recurring-empty" class="empty" style="display:none">No recurring or expected charges yet.</div>
+      </div>
     </div>
 
     <!-- Categories -->
@@ -494,6 +517,62 @@
   </div>
 </div>
 
+<!-- Recurring / Expected Charge Modal -->
+<div class="modal-overlay" id="modal-recurring">
+  <div class="modal">
+    <h2 id="modal-recurring-title">Add Expected Charge</h2>
+    <div class="type-toggle" style="margin-bottom:16px;">
+      <button id="rbtn-type-expense" class="active" onclick="setRecurringType('expense')">Expense</button>
+      <button id="rbtn-type-income" onclick="setRecurringType('income')">Income</button>
+      <button id="rbtn-type-savings" onclick="setRecurringType('savings')">Savings</button>
+      <button id="rbtn-type-investment" onclick="setRecurringType('investment')">Invest</button>
+    </div>
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>Description</label>
+        <input type="text" id="recurring-desc" placeholder="e.g. Mortgage, Netflix, Paycheque">
+      </div>
+      <div class="form-group full">
+        <label>Category</label>
+        <select id="recurring-cat"></select>
+      </div>
+      <div class="form-group">
+        <label>Amount ($)</label>
+        <input type="number" id="recurring-amount" placeholder="0.00" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Frequency</label>
+        <select id="recurring-freq" onchange="onRecurringFreqChange()">
+          <option value="once">Once</option>
+          <option value="weekly">Weekly</option>
+          <option value="biweekly">Every 2 weeks</option>
+          <option value="monthly">Monthly</option>
+          <option value="yearly">Yearly</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="form-group full" id="recurring-custom-row" style="display:none">
+        <label>Repeat every</label>
+        <div style="display:flex;gap:8px">
+          <input type="number" id="recurring-custom-interval" placeholder="e.g. 10" min="1" step="1" style="flex:1">
+          <select id="recurring-custom-unit" style="flex:1">
+            <option value="days">Days</option>
+            <option value="weeks">Weeks</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group full">
+        <label id="recurring-date-label">Date</label>
+        <input type="date" id="recurring-start-date">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-recurring')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveRecurringItem()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ===== STATE =====
 let state = {
@@ -691,6 +770,7 @@ function _applyDefaults() {
   const hasPBudgets = Object.keys(state.budgets).some(k => k.startsWith('p'));
   if (!Object.keys(state.budgets).length || !hasPBudgets) state.budgets = {...DEFAULT_BUDGETS};
   if (!state.rules) state.rules = {};
+  if (!state.recurringItems) state.recurringItems = [];
   // Ensure all categories have parentId field
   state.categories.forEach(c => { if (!('parentId' in c)) c.parentId = null; });
 }
@@ -838,6 +918,7 @@ async function signIn() {
       _updateAuthUI(true);
       await _loadFromDrive();
       _applyDefaults();
+      processRecurringItems();
       await _saveLocal();
       document.getElementById('month-label').textContent = monthStr(state.currentMonth);
       renderAll();
@@ -855,7 +936,7 @@ function signOut() {
 
 async function loadState() {
   const cached = await _loadLocal();
-  if (cached) { state = cached; _applyDefaults(); }
+  if (cached) { state = cached; _applyDefaults(); processRecurringItems(); }
   _updateAuthUI(false);
   try {
     await new Promise((res) => {
@@ -867,6 +948,7 @@ async function loadState() {
             _updateAuthUI(true);
             await _loadFromDrive();
             _applyDefaults();
+            processRecurringItems();
             await _saveLocal();
             scanImportFolder(true);
           }
@@ -1067,9 +1149,214 @@ function renderAll() {
   renderDashboard();
   renderTransactions();
   renderBudgets();
+  renderCashflow();
   renderCategories();
   renderRules();
   populateCatSelects();
+}
+
+// ===== CASHFLOW / RECURRING ITEMS =====
+let currentRecurringType = 'expense';
+let editingRecurringId = null;
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function addMonthsClamped(dateStr, n) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const day = d.getDate();
+  d.setDate(1);
+  d.setMonth(d.getMonth() + n);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  return d.toISOString().slice(0, 10);
+}
+
+function nextOccurrence(item, fromDate) {
+  const { schedule } = item;
+  switch (schedule.kind) {
+    case 'once':      return null;
+    case 'weekly':    return addDays(fromDate, 7);
+    case 'biweekly':  return addDays(fromDate, 14);
+    case 'monthly':   return addMonthsClamped(fromDate, 1);
+    case 'yearly':    return addMonthsClamped(fromDate, 12);
+    case 'custom': {
+      const n = Math.max(1, schedule.customInterval || 1);
+      return addDays(fromDate, schedule.customUnit === 'weeks' ? n * 7 : n);
+    }
+    default: return null;
+  }
+}
+
+function recurringLabel(item) {
+  const s = item.schedule;
+  const dateFmt = d => new Date(d + 'T00:00:00').toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+  switch (s.kind) {
+    case 'once':     return 'Once on ' + dateFmt(s.startDate);
+    case 'weekly':   return 'Weekly, starting ' + dateFmt(s.startDate);
+    case 'biweekly': return 'Every 2 weeks, starting ' + dateFmt(s.startDate);
+    case 'monthly':  return 'Monthly, starting ' + dateFmt(s.startDate);
+    case 'yearly':   return 'Yearly, starting ' + dateFmt(s.startDate);
+    case 'custom':   return `Every ${s.customInterval} ${s.customUnit}, starting ${dateFmt(s.startDate)}`;
+    default: return '';
+  }
+}
+
+// Posts real transactions for every due-or-overdue occurrence of each active
+// recurring item since it was last posted, catching up if the app wasn't
+// opened for a while. Mutates state.transactions and saves if anything posted.
+function processRecurringItems() {
+  if (!state.recurringItems?.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  let postedAny = false;
+
+  for (const item of state.recurringItems) {
+    if (!item.active) continue;
+    let cursor = item.lastPostedDate || null;
+    let due = cursor ? nextOccurrence(item, cursor) : item.schedule.startDate;
+    let guard = 0;
+    while (due && due <= today && guard++ < 120) {
+      state.transactions.push({
+        id: uid(), amount: item.amount, date: due, description: item.description,
+        categoryId: item.categoryId, notes: 'Auto-posted (recurring)', type: item.type
+      });
+      item.lastPostedDate = due;
+      postedAny = true;
+      if (item.schedule.kind === 'once') { item.active = false; due = null; }
+      else due = nextOccurrence(item, due);
+    }
+  }
+  if (postedAny) save();
+}
+
+function renderCashflow() {
+  const tbody = document.getElementById('recurring-tbody');
+  const empty = document.getElementById('recurring-empty');
+  const items = state.recurringItems || [];
+
+  if (!items.length) { tbody.innerHTML = ''; empty.style.display = 'block'; }
+  else {
+    empty.style.display = 'none';
+    tbody.innerHTML = items.map(item => {
+      const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
+      const nextDue = item.active
+        ? (item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : item.schedule.startDate)
+        : null;
+      return `<tr>
+        <td>${item.description}</td>
+        <td>${cat ? `<span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
+        <td style="text-align:right;font-weight:600">${fmt(item.amount)}</td>
+        <td style="color:var(--muted);font-size:13px">${recurringLabel(item)}</td>
+        <td style="color:var(--muted);font-size:13px">${nextDue || '—'}</td>
+        <td><button onclick="toggleRecurringActive('${item.id}')" class="badge" style="border:none;cursor:pointer;background:${item.active?'#22c55e22':'#94a3b822'};color:${item.active?'var(--green)':'var(--muted)'}">${item.active ? 'Active' : 'Paused'}</button></td>
+        <td style="display:flex;gap:6px">
+          <button class="btn btn-sm btn-outline" onclick="openRecurringModal('${item.id}')">Edit</button>
+          <button class="btn btn-danger" onclick="deleteRecurringItem('${item.id}')">Delete</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Upcoming preview — next occurrence per active item within 30 days, not yet posted
+  const upcomingEl = document.getElementById('cashflow-upcoming');
+  const horizon = addDays(new Date().toISOString().slice(0,10), 30);
+  const upcoming = items
+    .filter(i => i.active)
+    .map(i => ({item: i, due: i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : i.schedule.startDate}))
+    .filter(x => x.due && x.due <= horizon)
+    .sort((a,b) => a.due.localeCompare(b.due));
+
+  if (!upcoming.length) {
+    upcomingEl.innerHTML = '<div class="empty" style="padding:24px">Nothing expected in the next 30 days.</div>';
+  } else {
+    upcomingEl.innerHTML = upcoming.map(({item, due}) => {
+      const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
+      const color = par ? par.color : 'var(--muted)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
+          <span style="font-weight:500">${item.description}</span>
+          <span style="color:var(--muted);font-size:12px">${due}</span>
+        </div>
+        <span style="font-weight:700;color:${TYPE_META[item.type].color}">${item.type==='income'?'+':'−'}${fmt(item.amount)}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function setRecurringType(type) {
+  currentRecurringType = type;
+  TYPE_ORDER.forEach(t => document.getElementById('rbtn-type-' + t)?.classList.toggle('active', type === t));
+  populateRecurringCatSelect();
+}
+
+function populateRecurringCatSelect() {
+  const sel = document.getElementById('recurring-cat');
+  sel.innerHTML = buildCatOptions(currentRecurringType);
+}
+
+function onRecurringFreqChange() {
+  const freq = document.getElementById('recurring-freq').value;
+  document.getElementById('recurring-custom-row').style.display = freq === 'custom' ? 'block' : 'none';
+  document.getElementById('recurring-date-label').textContent = freq === 'once' ? 'Date' : 'Starting on';
+}
+
+function openRecurringModal(id) {
+  editingRecurringId = id || null;
+  const item = id ? state.recurringItems.find(i => i.id === id) : null;
+  document.getElementById('modal-recurring-title').textContent = item ? 'Edit Expected Charge' : 'Add Expected Charge';
+  setRecurringType(item ? item.type : 'expense');
+  document.getElementById('recurring-desc').value = item ? item.description : '';
+  document.getElementById('recurring-amount').value = item ? item.amount : '';
+  document.getElementById('recurring-freq').value = item ? item.schedule.kind : 'once';
+  document.getElementById('recurring-custom-interval').value = item?.schedule.customInterval || '';
+  document.getElementById('recurring-custom-unit').value = item?.schedule.customUnit || 'days';
+  document.getElementById('recurring-start-date').value = item ? item.schedule.startDate : new Date().toISOString().slice(0,10);
+  onRecurringFreqChange();
+  setTimeout(() => { if (item) document.getElementById('recurring-cat').value = item.categoryId; }, 10);
+  document.getElementById('modal-recurring').classList.add('open');
+}
+
+function saveRecurringItem() {
+  const description = document.getElementById('recurring-desc').value.trim();
+  const categoryId = document.getElementById('recurring-cat').value;
+  const amount = parseFloat(document.getElementById('recurring-amount').value);
+  const kind = document.getElementById('recurring-freq').value;
+  const startDate = document.getElementById('recurring-start-date').value;
+  if (!description || !amount || !startDate || !categoryId) { alert('Please fill all required fields.'); return; }
+
+  const schedule = { kind, startDate };
+  if (kind === 'custom') {
+    schedule.customInterval = Math.max(1, parseInt(document.getElementById('recurring-custom-interval').value) || 1);
+    schedule.customUnit = document.getElementById('recurring-custom-unit').value;
+  }
+
+  if (editingRecurringId) {
+    const item = state.recurringItems.find(i => i.id === editingRecurringId);
+    if (item) Object.assign(item, {description, categoryId, amount, type: currentRecurringType, schedule});
+  } else {
+    state.recurringItems.push({
+      id: uid(), description, categoryId, amount, type: currentRecurringType,
+      schedule, lastPostedDate: null, active: true
+    });
+  }
+  processRecurringItems();
+  save(); closeModal('modal-recurring'); renderAll();
+}
+
+function toggleRecurringActive(id) {
+  const item = state.recurringItems.find(i => i.id === id); if (!item) return;
+  item.active = !item.active;
+  save(); renderCashflow();
+}
+
+function deleteRecurringItem(id) {
+  if (!confirm('Delete this recurring item? Transactions already posted from it will stay in your Transactions list.')) return;
+  state.recurringItems = state.recurringItems.filter(i => i.id !== id);
+  save(); renderCashflow();
 }
 
 // ===== DASHBOARD =====
