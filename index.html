@@ -794,6 +794,10 @@ function _applyDefaults() {
   if (!Object.keys(state.budgets).length || !hasPBudgets) state.budgets = {...DEFAULT_BUDGETS};
   if (!state.rules) state.rules = {};
   if (!state.recurringItems) state.recurringItems = [];
+  // Cleanup: an earlier cashflow version auto-created transactions on due
+  // dates. The forecast is non-posting now — purge those phantom entries
+  // (real charges arrive via imports and lack this note).
+  state.transactions = (state.transactions || []).filter(t => t.notes !== 'Auto-posted (recurring)');
   // Ensure all categories have parentId field
   state.categories.forEach(c => { if (!('parentId' in c)) c.parentId = null; });
 }
@@ -1369,7 +1373,19 @@ function expectedOccurrences(horizon) {
       }
     }
   }
-  return remaining.sort((a, b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
+  remaining.sort((a, b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
+
+  // Merge rows for the same charge landing on the same day — happens when
+  // several past weekly estimates roll forward to "today" — so the list shows
+  // one combined line instead of apparent duplicates.
+  const merged = [];
+  const byKey = {};
+  for (const r of remaining) {
+    const key = r.item.categoryId + '|' + r.item.description + '|' + r.due;
+    if (byKey[key]) byKey[key].item.amount += r.item.amount;
+    else { byKey[key] = r; merged.push(r); }
+  }
+  return merged;
 }
 
 // Renders the list of existing plans for the currently selected category
