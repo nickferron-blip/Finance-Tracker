@@ -305,7 +305,8 @@
         <button class="btn btn-primary" onclick="openRecurringModal()">+ Add Expected Charge</button>
       </div>
       <div class="card">
-        <div class="section-header"><h2 style="font-size:14px">Recurring &amp; Expected Charges</h2></div>
+        <div class="section-header"><h2 style="font-size:14px">Expected Charges (forecast only)</h2></div>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:14px">These never create transactions — they feed the Dashboard's cashflow projection. As real transactions come in for a category, they consume its expected charges. Tip: you can also set these from the Budget page via each category's "Plan" button.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Description</th><th>Category</th><th style="text-align:right">Amount</th><th>Schedule</th><th>Next Due</th><th>Active</th><th></th></tr></thead>
@@ -1286,31 +1287,69 @@ function recurringLabel(item) {
   }
 }
 
-// Posts real transactions for every due-or-overdue occurrence of each active
-// recurring item since it was last posted, catching up if the app wasn't
-// opened for a while. Mutates state.transactions and saves if anything posted.
-function processRecurringItems() {
-  if (!state.recurringItems?.length) return;
-  const today = new Date().toISOString().slice(0, 10);
-  let postedAny = false;
+// Expected charges are FORECAST-ONLY: they never create transactions.
+// Real transactions arrive via imports/manual entry, and actual spend in a
+// category consumes its expected occurrences chronologically (see
+// expectedOccurrences below). Kept as a no-op for backward compatibility.
+function processRecurringItems() {}
 
-  for (const item of state.recurringItems) {
-    if (!item.active) continue;
-    let cursor = item.lastPostedDate || null;
-    let due = cursor ? nextOccurrence(item, cursor) : initialDue(item);
-    let guard = 0;
-    while (due && due <= today && guard++ < 120) {
-      state.transactions.push({
-        id: uid(), amount: item.amount, date: due, description: item.description,
-        categoryId: item.categoryId, notes: 'Auto-posted (recurring)', type: item.type
-      });
-      item.lastPostedDate = due;
-      postedAny = true;
-      if (item.schedule.kind === 'once') { item.active = false; due = null; }
-      else due = nextOccurrence(item, due);
+// All occurrences of one plan whose date falls in [from, to]
+function planOccurrencesInRange(plan, from, to) {
+  const out = [];
+  let due = initialDue(plan);
+  let guard = 0;
+  while (due && due <= to && guard++ < 1000) {
+    if (due >= from) out.push({date: due, amount: plan.amount, plan});
+    if (plan.schedule.kind === 'once') break;
+    due = nextOccurrence(plan, due);
+  }
+  return out;
+}
+
+// Next occurrence of a plan on/after today (for the Cashflow table)
+function nextDueFromToday(plan, today) {
+  let due = initialDue(plan);
+  let guard = 0;
+  while (due && due < today && plan.schedule.kind !== 'once' && guard++ < 1000) {
+    due = nextOccurrence(plan, due);
+  }
+  return due && due >= today ? due : (plan.schedule.kind === 'once' ? null : due);
+}
+
+// Forecast engine: for each category with active plans, list this month's
+// expected occurrences and consume them chronologically with the category's
+// actual net spend this month. What survives (dated >= today; overdue
+// occurrences surface as due today) is the remaining expected cashflow.
+// Exact charges (mortgage) zero out when the real transaction lands; estimates
+// (groceries) shrink as real spending eats the earliest occurrences.
+function expectedOccurrences(horizon) {
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
+  const realMonthTxns = state.transactions.filter(t => t.date >= monthStart && t.date <= endOfMonthStr(today));
+  const plans = (state.recurringItems || []).filter(p => p.active);
+  const byCat = {};
+  plans.forEach(p => { (byCat[p.categoryId] = byCat[p.categoryId] || []).push(p); });
+
+  const remaining = [];
+  for (const [catId, catPlans] of Object.entries(byCat)) {
+    const cat = getCat(catId);
+    const occs = catPlans
+      .flatMap(p => planOccurrencesInRange(p, monthStart, horizon))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    let consumed = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
+    for (const o of occs) {
+      const eat = Math.min(o.amount, consumed);
+      consumed -= eat;
+      const left = o.amount - eat;
+      if (left > 0.005) {
+        remaining.push({
+          item: {description: o.plan.description, type: o.plan.type, amount: left, categoryId: catId},
+          due: o.date < today ? today : o.date
+        });
+      }
     }
   }
-  if (postedAny) save();
+  return remaining.sort((a, b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
 }
 
 function renderCashflow() {
@@ -1321,11 +1360,10 @@ function renderCashflow() {
   if (!items.length) { tbody.innerHTML = ''; empty.style.display = 'block'; }
   else {
     empty.style.display = 'none';
+    const today = new Date().toISOString().slice(0, 10);
     tbody.innerHTML = items.map(item => {
       const cat = getCat(item.categoryId); const par = cat ? getParent(cat) : null;
-      const nextDue = item.active
-        ? (item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : initialDue(item))
-        : null;
+      const nextDue = item.active ? nextDueFromToday(item, today) : null;
       return `<tr>
         <td>${item.description}</td>
         <td>${cat ? `<span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
@@ -1393,38 +1431,20 @@ function saveBalanceAnchor() {
   save(); closeModal('modal-balance'); renderDashboard();
 }
 
-// Every occurrence of an active recurring item due in (today, horizon]
-function expandOccurrences(item, horizon) {
-  const out = [];
-  let due = item.lastPostedDate ? nextOccurrence(item, item.lastPostedDate) : initialDue(item);
-  let guard = 0;
-  while (due && due <= horizon && guard++ < 120) {
-    out.push({item, due});
-    if (item.schedule.kind === 'once') break;
-    due = nextOccurrence(item, due);
-  }
-  return out;
-}
-
 function renderDashboardCashflow() {
   const el = document.getElementById('dash-cashflow');
   if (!el) return;
   const today = new Date().toISOString().slice(0, 10);
-  const items = (state.recurringItems || []).filter(i => i.active);
   const monthEnd = endOfMonthStr(today);
 
-  // Next payday = earliest upcoming income occurrence
-  const nextPayday = items
-    .filter(i => i.type === 'income')
-    .map(i => i.lastPostedDate ? nextOccurrence(i, i.lastPostedDate) : initialDue(i))
-    .filter(Boolean)
-    .sort()[0] || null;
+  // Look far enough ahead to find the next payday even past month-end,
+  // AFTER consumption — income already received this month suppresses
+  // paydays that have effectively been paid.
+  const lookahead = expectedOccurrences(addDays(today, 60));
+  const nextPayday = lookahead.find(o => o.item.type === 'income')?.due || null;
 
-  // Expand every occurrence up to the farthest horizon we display
   const horizon = nextPayday && nextPayday > monthEnd ? nextPayday : monthEnd;
-  const occurrences = items
-    .flatMap(i => expandOccurrences(i, horizon))
-    .sort((a,b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
+  const occurrences = lookahead.filter(o => o.due <= horizon);
 
   // Running balance threaded through occurrences in date order
   const startBal = currentBalance();
@@ -1488,6 +1508,18 @@ function onRecurringFreqChange() {
   document.getElementById('recurring-date-label').textContent = freq === 'once' ? 'Date' : 'Starting on';
 }
 
+// Entry point from the Budget page: edit the category's existing plan, or
+// start a new one pre-filled with the category and its type.
+function openRecurringModalForCat(catId) {
+  const existing = (state.recurringItems || []).find(p => p.categoryId === catId);
+  if (existing) { openRecurringModal(existing.id); return; }
+  const cat = getCat(catId);
+  openRecurringModal();
+  setRecurringType(cat.type);
+  document.getElementById('recurring-desc').value = cat.name;
+  setTimeout(() => { document.getElementById('recurring-cat').value = catId; }, 10);
+}
+
 function openRecurringModal(id) {
   editingRecurringId = id || null;
   const item = id ? state.recurringItems.find(i => i.id === id) : null;
@@ -1538,7 +1570,7 @@ function toggleRecurringActive(id) {
 }
 
 function deleteRecurringItem(id) {
-  if (!confirm('Delete this recurring item? Transactions already posted from it will stay in your Transactions list.')) return;
+  if (!confirm('Delete this expected charge? It only affects the cashflow forecast — no transactions are touched.')) return;
   state.recurringItems = state.recurringItems.filter(i => i.id !== id);
   save(); renderCashflow();
 }
@@ -1885,7 +1917,10 @@ function renderBudgets() {
         <div class="budget-ring-wrap">${ring}</div>
         <div class="budget-circle-name">${s.name}</div>
         <div class="budget-circle-amount">${amtLabel}</div>
-        <button onclick="event.stopPropagation();openBudgetModal('${s.id}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 8px;margin-top:2px">Edit</button>
+        <div style="display:flex;gap:4px;margin-top:2px">
+          <button onclick="event.stopPropagation();openBudgetModal('${s.id}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 8px">Edit</button>
+          <button onclick="event.stopPropagation();openRecurringModalForCat('${s.id}')" class="btn btn-sm btn-outline" style="font-size:10px;padding:2px 8px" title="Set expected charge schedule for cashflow forecast">Plan</button>
+        </div>
       </div>`;
     }).join('');
 
