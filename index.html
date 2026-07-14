@@ -263,6 +263,19 @@
         <h2>Transactions</h2>
         <button class="btn btn-primary" onclick="openModal('add')">+ Add</button>
       </div>
+      <div class="card" style="margin-bottom:16px;padding:14px 24px">
+        <div style="display:flex;align-items:center;gap:28px;flex-wrap:wrap">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">Opening balance</span>
+            <span id="txn-opening-balance" style="font-weight:700">—</span>
+            <button class="btn btn-outline btn-sm" onclick="openBalanceModal()" style="font-size:11px;padding:3px 10px">Edit</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.07em;color:var(--muted)">Current balance</span>
+            <span id="txn-current-balance" style="font-weight:700;font-size:16px">—</span>
+          </div>
+        </div>
+      </div>
       <div class="card">
         <div class="flex" style="margin-bottom:16px; flex-wrap:wrap; gap:8px;">
           <input id="txn-search" placeholder="Search..." style="max-width:200px" oninput="renderTransactions()">
@@ -581,12 +594,16 @@
 <!-- Set Balance Modal -->
 <div class="modal-overlay" id="modal-balance">
   <div class="modal">
-    <h2>Set Current Balance</h2>
-    <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">Enter what's actually in your bank account right now. The app will track your balance forward from today using your transactions, and project it against upcoming charges. Reset it anytime to re-sync with your real account.</p>
+    <h2>Set Opening Balance</h2>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">Enter your real bank balance as of a date. Transactions dated <strong>after</strong> that date are added on top (income +, everything else −) to compute your current balance. To re-sync with your bank anytime, enter today's date and what's in the account right now.</p>
     <div class="form-grid">
-      <div class="form-group full">
-        <label>Current balance ($)</label>
+      <div class="form-group">
+        <label>Balance ($)</label>
         <input type="number" id="balance-amount" placeholder="0.00" step="0.01">
+      </div>
+      <div class="form-group">
+        <label>As of date</label>
+        <input type="date" id="balance-date">
       </div>
     </div>
     <div class="modal-footer">
@@ -1456,16 +1473,18 @@ function currentBalance() {
 }
 
 function openBalanceModal() {
-  const bal = currentBalance();
-  document.getElementById('balance-amount').value = bal !== null ? bal.toFixed(2) : '';
+  const a = state.balanceAnchor;
+  document.getElementById('balance-amount').value = a ? a.amount : '';
+  document.getElementById('balance-date').value = a ? a.date : new Date().toISOString().slice(0, 10);
   document.getElementById('modal-balance').classList.add('open');
 }
 
 function saveBalanceAnchor() {
   const amt = parseFloat(document.getElementById('balance-amount').value);
-  if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-  state.balanceAnchor = { amount: amt, date: new Date().toISOString().slice(0, 10) };
-  save(); closeModal('modal-balance'); renderDashboard();
+  const date = document.getElementById('balance-date').value;
+  if (isNaN(amt) || !date) { alert('Enter a valid amount and date.'); return; }
+  state.balanceAnchor = { amount: amt, date };
+  save(); closeModal('modal-balance'); renderDashboard(); renderTransactions();
 }
 
 function renderDashboardCashflow() {
@@ -1738,6 +1757,17 @@ function buildCatOptions(type) {
 }
 
 function renderTransactions() {
+  // Balance bar: opening (anchor) and computed current balance
+  const anchor = state.balanceAnchor;
+  const openEl = document.getElementById('txn-opening-balance');
+  const curEl = document.getElementById('txn-current-balance');
+  if (openEl) openEl.textContent = anchor ? (anchor.amount < 0 ? '-' : '') + fmt(anchor.amount) + ' (as of ' + anchor.date + ')' : 'Not set';
+  if (curEl) {
+    const bal = currentBalance();
+    curEl.textContent = bal !== null ? (bal < 0 ? '-' : '') + fmt(bal) : '—';
+    curEl.style.color = bal !== null && bal < 0 ? 'var(--red)' : 'var(--green)';
+  }
+
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const filterType = document.getElementById('txn-filter-type')?.value||'';
   const filterCat  = document.getElementById('txn-filter-cat')?.value||'';
