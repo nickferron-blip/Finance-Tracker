@@ -565,7 +565,7 @@
 
       <div id="plan-spread-form" style="display:none">
         <p style="color:var(--muted);font-size:13px;line-height:1.6;background:var(--surface2);border-radius:10px;padding:12px 14px">
-          The category's <strong>remaining budget</strong> (monthly budget − spent so far) will be spread evenly across the remaining weeks of the month. It recalculates automatically as real transactions come in — no amount to enter.
+          The part of the budget <strong>not covered by scheduled charges</strong> (monthly budget − this month's expected charges above) is spread evenly across the weeks of the month. As real transactions come in, they consume these weekly estimates — no amount to enter.
         </p>
         <div id="plan-spread-preview" style="margin-top:10px;font-size:13px;color:var(--text)"></div>
       </div>
@@ -1324,16 +1324,38 @@ function expectedOccurrences(horizon) {
   const byCat = {};
   plans.forEach(p => { (byCat[p.categoryId] = byCat[p.categoryId] || []).push(p); });
 
+  const monthEnd = endOfMonthStr(today);
   const remaining = [];
   for (const [catId, catPlans] of Object.entries(byCat)) {
     const cat = getCat(catId);
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
 
-    // Fixed schedules: consume this month's occurrences with actual net spend
-    const occs = fixedPlans
-      .flatMap(p => planOccurrencesInRange(p, monthStart, horizon))
-      .sort((a, b) => a.date.localeCompare(b.date));
+    // The month's full expected picture for this category:
+    // fixed scheduled occurrences...
+    const fixedOccs = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, horizon));
+
+    // ...plus, if a weekly split exists, the UNSCHEDULED remainder of the
+    // budget — (monthly budget − month's scheduled charges) ÷ weeks of the
+    // month — as weekly estimate occurrences across the whole month.
+    let spreadOccs = [];
+    if (spreadPlan && state.budgets[catId]) {
+      const fixedMonthTotal = fixedOccs
+        .filter(o => o.date <= monthEnd)
+        .reduce((a, o) => a + o.amount, 0);
+      const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
+      if (pool > 0.005) {
+        const dates = [];
+        for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) dates.push(d);
+        const per = pool / dates.length;
+        spreadOccs = dates.map(d => ({date: d, amount: per, plan: spreadPlan}));
+      }
+    }
+
+    // Actual net spend this month consumes ALL occurrences chronologically —
+    // exact charges (mortgage) vanish when paid; weekly estimates shrink as
+    // real spending eats the earliest weeks first.
+    const occs = [...fixedOccs, ...spreadOccs].sort((a, b) => a.date.localeCompare(b.date));
     let consumed = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
     for (const o of occs) {
       const eat = Math.min(o.amount, consumed);
@@ -1341,30 +1363,9 @@ function expectedOccurrences(horizon) {
       const left = o.amount - eat;
       if (left > 0.005) {
         remaining.push({
-          item: {description: o.plan.description, type: o.plan.type, amount: left, categoryId: catId},
+          item: {description: o.plan.description, type: o.plan.type || cat.type, amount: left, categoryId: catId},
           due: o.date < today ? today : o.date
         });
-      }
-    }
-
-    // Weekly split: remaining budget (budget − spent, already net of actuals)
-    // spread evenly over the weeks left in the month — no consumption pass
-    // needed since it's recomputed from actuals every time.
-    if (spreadPlan) {
-      const budget = state.budgets[catId];
-      if (budget) {
-        const spent = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
-        const rem = Math.max(0, budget - spent);
-        if (rem > 0.005) {
-          const monthEnd = endOfMonthStr(today);
-          const dates = [];
-          for (let d = today; d <= monthEnd; d = addDays(d, 7)) dates.push(d);
-          const per = rem / dates.length;
-          dates.forEach(d => remaining.push({
-            item: {description: spreadPlan.description, type: cat.type, amount: per, categoryId: catId},
-            due: d
-          }));
-        }
       }
     }
   }
@@ -1537,12 +1538,18 @@ function updateSpreadPreview() {
   if (!budget) { el.innerHTML = `<span style="color:var(--yellow)">⚠ ${cat.name} has no budget set — set one first for the weekly split to work.</span>`; return; }
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 8) + '01';
-  const monthTxns = state.transactions.filter(t => t.date >= monthStart && t.date <= endOfMonthStr(today));
-  const spent = Math.max(0, netCatAmount(catId, cat.type, monthTxns));
-  const remaining = Math.max(0, budget - spent);
-  const daysLeft = Math.max(1, (new Date(endOfMonthStr(today) + 'T00:00:00') - new Date(today + 'T00:00:00')) / 86400000);
-  const weeks = Math.max(1, Math.ceil(daysLeft / 7));
-  el.innerHTML = `Right now: <strong>${fmt(remaining)}</strong> remaining (${fmt(budget)} budget − ${fmt(spent)} spent) ÷ ${weeks} week${weeks > 1 ? 's' : ''} left = <strong>${fmt(remaining / weeks)}/week</strong>`;
+  const monthEnd = endOfMonthStr(today);
+  // Same math as the forecast engine: the split pool is the part of the
+  // budget NOT covered by this month's scheduled charges, over the whole month.
+  const fixedPlans = (state.recurringItems || []).filter(p => p.active && p.categoryId === catId && p.mode !== 'spread');
+  const fixedMonthTotal = fixedPlans
+    .flatMap(p => planOccurrencesInRange(p, monthStart, monthEnd))
+    .reduce((a, o) => a + o.amount, 0);
+  const pool = Math.max(0, budget - fixedMonthTotal);
+  const dates = [];
+  for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) dates.push(d);
+  const weeks = dates.length;
+  el.innerHTML = `Right now: <strong>${fmt(pool)}</strong> to split (${fmt(budget)} budget${fixedMonthTotal > 0.005 ? ` − ${fmt(fixedMonthTotal)} scheduled charges this month` : ''}) ÷ ${weeks} week${weeks > 1 ? 's' : ''} = <strong>${fmt(pool / weeks)}/week</strong>. Actual spending consumes these weekly estimates as it comes in.`;
 }
 
 function onRecurringFreqChange() {
