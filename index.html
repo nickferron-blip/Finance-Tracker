@@ -1529,7 +1529,7 @@ function renderDashboardCashflow() {
     const order = [];
     list.forEach(o => {
       const key = o.item.description;
-      if (!groups[key]) { groups[key] = {desc: key, type: o.item.type, total: 0, count: 0, catId: o.item.categoryId}; order.push(key); }
+      if (!groups[key]) { groups[key] = {desc: key, type: o.item.type, total: 0, count: 0, catId: o.item.categoryId, date: o.due}; order.push(key); }
       groups[key].total += o.item.amount;
       groups[key].count += 1;
     });
@@ -1539,11 +1539,16 @@ function renderDashboardCashflow() {
   const detailRow = (g) => {
     const cat = getCat(g.catId); const par = cat ? getParent(cat) : null;
     const color = par ? par.color : 'var(--muted)';
-    const per = g.count > 1 ? ` <span style="color:var(--muted);font-size:11px">(${g.count}×)</span>` : '';
+    // Show a date only for single-occurrence charges; grouped recurring
+    // estimates span multiple dates so a single date would mislead.
+    const dateHtml = g.count === 1
+      ? `<span style="color:var(--muted);font-size:12px;flex-shrink:0">${g.date}</span>`
+      : `<span style="color:var(--muted);font-size:11px;flex-shrink:0">${g.count}×</span>`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
-        <span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.desc}${per}</span>
+        <span style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${g.desc}</span>
+        ${dateHtml}
       </div>
       <span style="font-weight:700;color:${TYPE_META[g.type].color};flex-shrink:0;margin-left:12px">${g.type==='income'?'+':'−'}${fmt(g.total)}</span>
     </div>`;
