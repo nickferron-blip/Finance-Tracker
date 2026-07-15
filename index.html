@@ -291,9 +291,28 @@
           </select>
           <span id="txn-count" style="margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap"></span>
         </div>
+        <div id="txn-bulk-bar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px">
+          <span id="txn-bulk-count" style="font-weight:600;font-size:13px"></span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:12px;color:var(--muted)">Set category:</label>
+            <select id="txn-bulk-cat" style="max-width:200px"></select>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <label style="font-size:12px;color:var(--muted)">Set type:</label>
+            <select id="txn-bulk-type" onchange="bulkSetType(this.value)" style="max-width:130px">
+              <option value="">—</option>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+              <option value="savings">Savings</option>
+              <option value="investment">Investment</option>
+            </select>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="bulkDelete()" style="margin-left:auto">Delete selected</button>
+          <button class="btn btn-outline btn-sm" onclick="clearTxnSelection()">Clear</button>
+        </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+            <thead><tr><th style="width:32px"><input type="checkbox" id="txn-select-all" onchange="toggleSelectAll(this.checked)" style="width:auto;cursor:pointer"></th><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right">Amount</th><th></th></tr></thead>
             <tbody id="txn-tbody"></tbody>
           </table>
         </div>
@@ -641,6 +660,8 @@ const TYPE_ORDER = ['expense', 'income', 'savings', 'investment'];
 let currentTxnType = 'expense';
 let csvData = null;
 let csvHeaders = [];
+let selectedTxns = new Set();
+let visibleTxnIds = [];
 
 const COLORS = [
   // Purples & blues
@@ -1830,11 +1851,14 @@ function renderTransactions() {
   if (filterType) txns = txns.filter(t=>t.type===filterType);
   if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
   txns.sort((a,b)=>b.date.localeCompare(a.date));
+  visibleTxnIds = txns.map(t => t.id);
+  // Drop selections no longer visible (filter/month changed)
+  [...selectedTxns].forEach(id => { if (!visibleTxnIds.includes(id)) selectedTxns.delete(id); });
   const countEl = document.getElementById('txn-count');
   if (countEl) countEl.textContent = txns.length + (txns.length === 1 ? ' transaction' : ' transactions');
   const tbody = document.getElementById('txn-tbody');
   const empty = document.getElementById('txn-empty');
-  if (!txns.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  if (!txns.length) { tbody.innerHTML=''; empty.style.display='block'; updateBulkBar(); return; }
   empty.style.display='none';
   tbody.innerHTML = txns.map(t => {
     const cat = getCat(t.categoryId); const par = getParent(cat);
@@ -1842,6 +1866,7 @@ function renderTransactions() {
     const incOpts = buildCatOptions('income');
     const allOpts = expOpts + incOpts;
     return `<tr id="txnrow-${t.id}">
+      <td><input type="checkbox" class="txn-check" data-id="${t.id}" ${selectedTxns.has(t.id)?'checked':''} onchange="toggleTxnSelect('${t.id}', this.checked)" style="width:auto;cursor:pointer"></td>
       <td>${t.date}</td>
       <td>
         ${t.description}
@@ -1887,6 +1912,74 @@ function renderTransactions() {
     const sel = document.getElementById(`catsel-${t.id}`);
     if (sel) sel.value = t.categoryId;
   });
+  updateBulkBar();
+}
+
+// ===== BULK SELECT =====
+function toggleTxnSelect(id, checked) {
+  if (checked) selectedTxns.add(id); else selectedTxns.delete(id);
+  updateBulkBar();
+}
+
+function toggleSelectAll(checked) {
+  visibleTxnIds.forEach(id => { if (checked) selectedTxns.add(id); else selectedTxns.delete(id); });
+  document.querySelectorAll('.txn-check').forEach(cb => { cb.checked = checked; });
+  updateBulkBar();
+}
+
+function clearTxnSelection() {
+  selectedTxns.clear();
+  document.querySelectorAll('.txn-check').forEach(cb => { cb.checked = false; });
+  const all = document.getElementById('txn-select-all'); if (all) all.checked = false;
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('txn-bulk-bar');
+  const n = selectedTxns.size;
+  if (bar) bar.style.display = n ? 'flex' : 'none';
+  const countEl = document.getElementById('txn-bulk-count');
+  if (countEl) countEl.textContent = n + (n === 1 ? ' selected' : ' selected');
+  const allBox = document.getElementById('txn-select-all');
+  if (allBox) allBox.checked = n > 0 && visibleTxnIds.every(id => selectedTxns.has(id));
+  // Populate bulk category selector once
+  const catSel = document.getElementById('txn-bulk-cat');
+  if (catSel && !catSel.dataset.built) {
+    catSel.innerHTML = '<option value="">—</option>' + TYPE_ORDER.map(t => buildCatOptions(t)).join('');
+    catSel.dataset.built = '1';
+    catSel.onchange = () => { if (catSel.value) bulkSetCategory(catSel.value); };
+  }
+  if (catSel) catSel.value = '';
+  const typeSel = document.getElementById('txn-bulk-type');
+  if (typeSel) typeSel.value = '';
+}
+
+function bulkSetCategory(catId) {
+  if (!selectedTxns.size) return;
+  const cat = getCat(catId);
+  state.transactions.forEach(t => {
+    if (selectedTxns.has(t.id)) {
+      t.categoryId = catId;
+      t.type = cat.type; // keep type consistent with the category
+      learnRule(t.description, catId);
+    }
+  });
+  save(); renderAll();
+}
+
+function bulkSetType(type) {
+  if (!type || !selectedTxns.size) return;
+  state.transactions.forEach(t => { if (selectedTxns.has(t.id)) t.type = type; });
+  save(); renderAll();
+}
+
+function bulkDelete() {
+  const n = selectedTxns.size;
+  if (!n) return;
+  if (!confirm(`Delete ${n} selected transaction${n===1?'':'s'}? This cannot be undone.`)) return;
+  state.transactions = state.transactions.filter(t => !selectedTxns.has(t.id));
+  selectedTxns.clear();
+  save(); renderAll();
 }
 
 function showCatSelect(id) {
