@@ -600,6 +600,13 @@
         <p style="color:var(--muted);font-size:13px;line-height:1.6;background:var(--surface2);border-radius:10px;padding:12px 14px">
           The part of the budget <strong>not covered by scheduled charges</strong> (monthly budget − this month's expected charges above) is spread evenly across the weeks of the month. As real transactions come in, they consume these weekly estimates — no amount to enter.
         </p>
+        <div class="form-group full" style="margin-top:12px">
+          <label>When a week comes in under estimate</label>
+          <select id="recurring-carry-mode" onchange="updateSpreadPreview()">
+            <option value="carry">Carry unused budget forward (spend full budget)</option>
+            <option value="drop">Drop the unused amount (spending may be less)</option>
+          </select>
+        </div>
         <div id="plan-spread-preview" style="margin-top:10px;font-size:13px;color:var(--text)"></div>
       </div>
     </div>
@@ -1373,42 +1380,40 @@ function expectedOccurrences(horizon) {
     const cat = getCat(catId);
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
+    const push = (o, amt) => { if (amt > 0.005) remaining.push({
+      item: {description: o.plan.description, type: o.plan.type || cat.type, amount: amt, categoryId: catId},
+      due: o.date < today ? today : o.date
+    }); };
 
-    // The month's full expected picture for this category:
-    // fixed scheduled occurrences...
-    const fixedOccs = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, horizon));
-
-    // ...plus, if a weekly split exists, the UNSCHEDULED remainder of the
-    // budget — (monthly budget − month's scheduled charges) ÷ weeks of the
-    // month — as weekly estimate occurrences across the whole month.
-    let spreadOccs = [];
-    if (spreadPlan && state.budgets[catId]) {
-      const fixedMonthTotal = fixedOccs
-        .filter(o => o.date <= monthEnd)
-        .reduce((a, o) => a + o.amount, 0);
-      const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
-      if (pool > 0.005) {
-        const dates = [];
-        for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) dates.push(d);
-        const per = pool / dates.length;
-        spreadOccs = dates.map(d => ({date: d, amount: per, plan: spreadPlan}));
-      }
+    // Fixed scheduled occurrences, consumed chronologically by actual spend.
+    const fixedOccs = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, horizon))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    let actualLeft = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
+    for (const o of fixedOccs) {
+      const eat = Math.min(o.amount, actualLeft);
+      actualLeft -= eat;
+      push(o, o.amount - eat);
     }
 
-    // Actual net spend this month consumes ALL occurrences chronologically —
-    // exact charges (mortgage) vanish when paid; weekly estimates shrink as
-    // real spending eats the earliest weeks first.
-    const occs = [...fixedOccs, ...spreadOccs].sort((a, b) => a.date.localeCompare(b.date));
-    let consumed = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
-    for (const o of occs) {
-      const eat = Math.min(o.amount, consumed);
-      consumed -= eat;
-      const left = o.amount - eat;
-      if (left > 0.005) {
-        remaining.push({
-          item: {description: o.plan.description, type: o.plan.type || cat.type, amount: left, categoryId: catId},
-          due: o.date < today ? today : o.date
-        });
+    // Weekly split of the budget not covered by scheduled charges.
+    if (spreadPlan && state.budgets[catId]) {
+      const fixedMonthTotal = fixedOccs.filter(o => o.date <= monthEnd).reduce((a, o) => a + o.amount, 0);
+      const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
+      const weekDates = [];
+      for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) weekDates.push(d);
+      const base = weekDates.length ? pool / weekDates.length : 0;
+      const futureWeeks = weekDates.filter(d => d >= today);
+      const mode = spreadPlan.carryMode || 'carry';
+      if (mode === 'drop') {
+        // Each remaining week projected at the full per-week rate; past/current
+        // weeks and any underspend are simply dropped.
+        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, base));
+      } else {
+        // Carry: unspent budget rolls forward — remaining pool (budget already
+        // spent this month subtracted) re-split across the remaining weeks.
+        const remPool = Math.max(0, pool - actualLeft);
+        const perC = futureWeeks.length ? remPool / futureWeeks.length : 0;
+        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, perC));
       }
     }
   }
@@ -1441,7 +1446,7 @@ function renderPlanList() {
   }
   el.innerHTML = plans.map(p => {
     const label = p.mode === 'spread'
-      ? 'Remaining budget ÷ remaining weeks'
+      ? `Weekly split · ${(p.carryMode || 'carry') === 'drop' ? 'drops unused' : 'carries unused'}`
       : `${fmt(p.amount)} — ${recurringLabel(p)}`;
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0">
@@ -1450,7 +1455,7 @@ function renderPlanList() {
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
         <button onclick="toggleRecurringActive('${p.id}')" class="badge" style="border:none;cursor:pointer;background:${p.active?'#22c55e22':'#94a3b822'};color:${p.active?'var(--green)':'var(--muted)'}">${p.active ? 'Active' : 'Paused'}</button>
-        ${p.mode === 'spread' ? '' : `<button class="btn btn-sm btn-outline" onclick="editPlanItem('${p.id}')" style="font-size:11px;padding:3px 8px">Edit</button>`}
+        <button class="btn btn-sm btn-outline" onclick="${p.mode === 'spread' ? `setPlanMode('spread')` : `editPlanItem('${p.id}')`}" style="font-size:11px;padding:3px 8px">Edit</button>
         <button class="btn btn-danger" onclick="deleteRecurringItem('${p.id}')" style="font-size:11px;padding:3px 8px">Delete</button>
       </div>
     </div>`;
@@ -1631,7 +1636,16 @@ function setPlanMode(mode) {
   document.getElementById('pmode-spread').classList.toggle('active', mode === 'spread');
   document.getElementById('plan-fixed-form').style.display = mode === 'fixed' ? 'grid' : 'none';
   document.getElementById('plan-spread-form').style.display = mode === 'spread' ? 'block' : 'none';
-  if (mode === 'spread') updateSpreadPreview();
+  if (mode === 'spread') {
+    // Preload the carry mode from an existing split, and relabel the button
+    const catId = document.getElementById('recurring-cat').value;
+    const existing = (state.recurringItems || []).find(p => p.categoryId === catId && p.mode === 'spread');
+    document.getElementById('recurring-carry-mode').value = existing ? (existing.carryMode || 'carry') : 'carry';
+    document.getElementById('plan-save-btn').textContent = existing ? 'Update split' : 'Add';
+    updateSpreadPreview();
+  } else {
+    document.getElementById('plan-save-btn').textContent = editingRecurringId ? 'Update' : 'Add';
+  }
 }
 
 function populateRecurringCatSelect() {
@@ -1660,7 +1674,19 @@ function updateSpreadPreview() {
   const dates = [];
   for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) dates.push(d);
   const weeks = dates.length;
-  el.innerHTML = `Right now: <strong>${fmt(pool)}</strong> to split (${fmt(budget)} budget${fixedMonthTotal > 0.005 ? ` − ${fmt(fixedMonthTotal)} scheduled charges this month` : ''}) ÷ ${weeks} week${weeks > 1 ? 's' : ''} = <strong>${fmt(pool / weeks)}/week</strong>. Actual spending consumes these weekly estimates as it comes in.`;
+  const base = pool / weeks;
+  const spent = Math.max(0, netCatAmount(catId, cat.type, state.transactions.filter(t => t.date >= monthStart && t.date <= monthEnd)));
+  const futureWeeks = dates.filter(d => d >= today).length || 1;
+  const mode = document.getElementById('recurring-carry-mode').value;
+  const baseLine = `Base: <strong>${fmt(pool)}</strong> (${fmt(budget)} budget${fixedMonthTotal > 0.005 ? ` − ${fmt(fixedMonthTotal)} scheduled` : ''}) ÷ ${weeks} wk = <strong>${fmt(base)}/wk</strong>.`;
+  let modeLine;
+  if (mode === 'drop') {
+    modeLine = `<br><span style="color:var(--muted)">Drop: each remaining week projects the full ${fmt(base)}; underspent weeks are dropped. Going forward: <strong>${fmt(base)}/wk × ${futureWeeks} wk left</strong>.</span>`;
+  } else {
+    const remPool = Math.max(0, pool - spent);
+    modeLine = `<br><span style="color:var(--muted)">Carry: unspent budget rolls forward. Remaining ${fmt(remPool)} (${fmt(pool)} − ${fmt(spent)} spent) ÷ ${futureWeeks} wk left = <strong>${fmt(remPool / futureWeeks)}/wk</strong>.</span>`;
+  }
+  el.innerHTML = baseLine + modeLine;
 }
 
 function onRecurringFreqChange() {
@@ -1717,13 +1743,16 @@ function saveRecurringItem() {
 
   if (currentPlanMode === 'spread') {
     if (!state.budgets[categoryId]) { alert(cat.name + ' has no budget set — set a budget first.'); return; }
-    if ((state.recurringItems || []).some(p => p.categoryId === categoryId && p.mode === 'spread')) {
-      alert(cat.name + ' already has a weekly split.'); return;
+    const carryMode = document.getElementById('recurring-carry-mode').value;
+    const existingSpread = (state.recurringItems || []).find(p => p.categoryId === categoryId && p.mode === 'spread');
+    if (existingSpread) {
+      existingSpread.carryMode = carryMode; // update the existing split's mode
+    } else {
+      state.recurringItems.push({
+        id: uid(), mode: 'spread', description: cat.name + ' (weekly est.)',
+        categoryId, type: cat.type, carryMode, active: true
+      });
     }
-    state.recurringItems.push({
-      id: uid(), mode: 'spread', description: cat.name + ' (weekly est.)',
-      categoryId, type: cat.type, active: true
-    });
   } else {
     const description = document.getElementById('recurring-desc').value.trim() || cat.name;
     const amount = parseFloat(document.getElementById('recurring-amount').value);
