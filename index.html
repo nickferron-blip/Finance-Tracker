@@ -1456,32 +1456,31 @@ function expectedOccurrences(horizon) {
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
     // estimate=true → weekly-split item with no genuine charge date (shown blank).
+    // All occurrences pushed here are already dated today-or-later.
     const push = (o, amt, estimate) => { if (amt > 0.005) remaining.push({
       item: {description: o.plan.description, type: o.plan.type || cat.type, amount: amt, categoryId: catId,
              estimate: !!estimate, dateShown: estimate ? null : o.date},
-      due: o.date < today ? today : o.date
+      due: o.date
     }); };
 
-    // Fixed scheduled occurrences, consumed chronologically by actual spend.
-    // A scheduled charge is a one-time known event: once its real transaction
-    // has landed (its date is today-or-past and actual spend has reached it),
-    // it's DROPPED entirely — even if the actual amount differed from the
-    // estimate. Only genuinely-unrealized (future, or overdue-unpaid) charges
-    // stay in the forecast.
-    const fixedOccs = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, horizon))
+    // Fixed scheduled occurrences from TODAY forward. A past occurrence is
+    // considered done and does NOT resurface (its next occurrence is what
+    // matters). A today-or-later charge already paid — actual spend dated on/
+    // after today — is consumed and dropped, even if the amount differed.
+    const fixedFuture = fixedPlans.flatMap(p => planOccurrencesInRange(p, today, horizon))
       .sort((a, b) => a.date.localeCompare(b.date));
-    let actualLeft = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
-    for (const o of fixedOccs) {
-      const eat = Math.min(o.amount, actualLeft);
-      actualLeft -= eat;
-      const realized = eat > 0.005 && o.date <= today;
-      if (realized) continue;          // charge came in → drop remainder
-      push(o, o.amount - eat);          // future or not-yet-paid → keep expected
+    let paidFromToday = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns.filter(t => t.date >= today)));
+    for (const o of fixedFuture) {
+      const eat = Math.min(o.amount, paidFromToday);
+      paidFromToday -= eat;
+      push(o, o.amount - eat, false);
     }
 
     // Weekly split of the budget not covered by scheduled charges.
     if (spreadPlan && state.budgets[catId]) {
-      const fixedMonthTotal = fixedOccs.filter(o => o.date <= monthEnd).reduce((a, o) => a + o.amount, 0);
+      // Pool is reduced by ALL of this month's scheduled charges (past + future).
+      const fixedMonthTotal = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, monthEnd))
+        .reduce((a, o) => a + o.amount, 0);
       const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
       const weekDates = [];
       for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) weekDates.push(d);
@@ -1493,9 +1492,10 @@ function expectedOccurrences(horizon) {
         // weeks and any underspend are simply dropped.
         futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, base, true));
       } else {
-        // Carry: unspent budget rolls forward — remaining pool (budget already
-        // spent this month subtracted) re-split across the remaining weeks.
-        const remPool = Math.max(0, pool - actualLeft);
+        // Carry: unspent budget rolls forward — remaining pool (this month's
+        // spend subtracted) re-split across the remaining weeks.
+        const monthSpend = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
+        const remPool = Math.max(0, pool - monthSpend);
         const perC = futureWeeks.length ? remPool / futureWeeks.length : 0;
         futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, perC, true));
       }
