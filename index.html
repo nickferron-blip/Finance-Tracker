@@ -289,6 +289,7 @@
           <select id="txn-filter-cat" onchange="renderTransactions()" style="max-width:160px">
             <option value="">All categories</option>
           </select>
+          <span id="txn-count" style="margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap"></span>
         </div>
         <div class="table-wrap">
           <table>
@@ -1776,6 +1777,8 @@ function renderTransactions() {
   if (filterType) txns = txns.filter(t=>t.type===filterType);
   if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
   txns.sort((a,b)=>b.date.localeCompare(a.date));
+  const countEl = document.getElementById('txn-count');
+  if (countEl) countEl.textContent = txns.length + (txns.length === 1 ? ' transaction' : ' transactions');
   const tbody = document.getElementById('txn-tbody');
   const empty = document.getElementById('txn-empty');
   if (!txns.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
