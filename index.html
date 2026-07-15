@@ -40,7 +40,7 @@
   body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; min-height: 100vh; }
 
   /* ── Layout ── */
-  .app { display: grid; grid-template-columns: 230px 1fr; grid-template-rows: 72px 1fr; min-height: 100vh; }
+  .app { display: grid; grid-template-columns: 230px 1fr; grid-template-rows: 72px 1fr; height: 100vh; overflow: hidden; }
 
   /* ── Header ── */
   header { grid-column: 1/-1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 28px; gap: 16px; box-shadow: var(--shadow); }
@@ -51,7 +51,7 @@
   #month-label { font-weight: 600; min-width: 130px; text-align: center; font-size: 14px; color: var(--text); letter-spacing: 0.01em; }
 
   /* ── Nav ── */
-  nav { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 14px; display: flex; flex-direction: column; gap: 3px; box-shadow: var(--shadow); }
+  nav { background: var(--surface); border-right: 1px solid var(--border); padding: 20px 14px; display: flex; flex-direction: column; gap: 3px; box-shadow: var(--shadow); overflow-y: auto; }
   nav button { background: none; border: none; color: var(--muted); padding: 11px 14px; border-radius: var(--radius-sm); cursor: pointer; text-align: left; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 10px; transition: all 0.15s; width: 100%; letter-spacing: 0.01em; }
   nav button i { width: 17px; height: 17px; stroke-width: 1.75; flex-shrink: 0; }
   nav button:hover { background: var(--surface2); color: var(--accent); }
