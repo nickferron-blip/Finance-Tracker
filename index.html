@@ -573,6 +573,7 @@
             <option value="once">Once</option>
             <option value="weekly">Weekly</option>
             <option value="biweekly">Every 2 weeks</option>
+            <option value="fourweekly">Every 4 weeks</option>
             <option value="bimonthly_1_15">Twice a month (1st &amp; 15th)</option>
             <option value="bimonthly_15_last">Twice a month (15th &amp; last day)</option>
             <option value="monthly">Monthly</option>
@@ -1375,6 +1376,7 @@ function nextOccurrence(item, fromDate) {
     case 'once':      return null;
     case 'weekly':    return addDays(fromDate, 7);
     case 'biweekly':  return addDays(fromDate, 14);
+    case 'fourweekly': return addDays(fromDate, 28);
     case 'bimonthly_1_15':    return nextBimonthlyAfter('1_15', fromDate);
     case 'bimonthly_15_last': return nextBimonthlyAfter('15_last', fromDate);
     case 'monthly':   return addMonthsClamped(fromDate, 1);
@@ -1394,6 +1396,7 @@ function recurringLabel(item) {
     case 'once':     return 'Once on ' + dateFmt(s.startDate);
     case 'weekly':   return 'Weekly, starting ' + dateFmt(s.startDate);
     case 'biweekly': return 'Every 2 weeks, starting ' + dateFmt(s.startDate);
+    case 'fourweekly': return 'Every 4 weeks, starting ' + dateFmt(s.startDate);
     case 'bimonthly_1_15':    return 'Twice a month (1st & 15th), starting ' + dateFmt(s.startDate);
     case 'bimonthly_15_last': return 'Twice a month (15th & last day), starting ' + dateFmt(s.startDate);
     case 'monthly':  return 'Monthly, starting ' + dateFmt(s.startDate);
