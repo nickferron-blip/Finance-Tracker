@@ -1455,8 +1455,10 @@ function expectedOccurrences(horizon) {
     const cat = getCat(catId);
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
-    const push = (o, amt) => { if (amt > 0.005) remaining.push({
-      item: {description: o.plan.description, type: o.plan.type || cat.type, amount: amt, categoryId: catId},
+    // estimate=true → weekly-split item with no genuine charge date (shown blank).
+    const push = (o, amt, estimate) => { if (amt > 0.005) remaining.push({
+      item: {description: o.plan.description, type: o.plan.type || cat.type, amount: amt, categoryId: catId,
+             estimate: !!estimate, dateShown: estimate ? null : o.date},
       due: o.date < today ? today : o.date
     }); };
 
@@ -1489,13 +1491,13 @@ function expectedOccurrences(horizon) {
       if (mode === 'drop') {
         // Each remaining week projected at the full per-week rate; past/current
         // weeks and any underspend are simply dropped.
-        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, base));
+        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, base, true));
       } else {
         // Carry: unspent budget rolls forward — remaining pool (budget already
         // spent this month subtracted) re-split across the remaining weeks.
         const remPool = Math.max(0, pool - actualLeft);
         const perC = futureWeeks.length ? remPool / futureWeeks.length : 0;
-        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, perC));
+        futureWeeks.forEach(d => push({plan: spreadPlan, date: d}, perC, true));
       }
     }
   }
@@ -1643,7 +1645,7 @@ function renderDashboardCashflow() {
     const order = [];
     list.forEach(o => {
       const key = o.item.description;
-      if (!groups[key]) { groups[key] = {desc: key, type: o.item.type, total: 0, count: 0, catId: o.item.categoryId, date: o.due}; order.push(key); }
+      if (!groups[key]) { groups[key] = {desc: key, type: o.item.type, total: 0, count: 0, catId: o.item.categoryId, date: o.item.dateShown, estimate: o.item.estimate}; order.push(key); }
       groups[key].total += o.item.amount;
       groups[key].count += 1;
     });
@@ -1653,11 +1655,14 @@ function renderDashboardCashflow() {
   const detailRow = (g) => {
     const cat = getCat(g.catId); const par = cat ? getParent(cat) : null;
     const color = par ? par.color : 'var(--muted)';
-    // Show a date only for single-occurrence charges; grouped recurring
-    // estimates span multiple dates so a single date would mislead.
-    const dateHtml = g.count === 1
-      ? `<span style="color:var(--muted);font-size:12px">${g.date}</span>`
-      : `<span style="color:var(--muted);font-size:11px">${g.count}×</span>`;
+    // Show a date only for genuinely-scheduled single charges. Weekly estimates
+    // have no set date (blank); a group of several shows a count instead.
+    const dateHtml = g.estimate ? ''
+      : g.count === 1 && g.date
+        ? `<span style="color:var(--muted);font-size:12px">${g.date}</span>`
+        : g.count > 1
+          ? `<span style="color:var(--muted);font-size:11px">${g.count}×</span>`
+          : '';
     return `<div style="display:grid;grid-template-columns:minmax(0,1fr) 110px minmax(0,1fr);align-items:center;padding:6px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:10px;min-width:0">
         <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0"></span>
