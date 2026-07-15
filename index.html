@@ -777,6 +777,7 @@ const IMPORT_FOLDER_NAME = 'Finance Tracker Imports';
 
 let _accessToken = null;
 let _driveFileId = null;
+let _grantedScopes = '';
 let _saveTimer = null;
 let _db = null;
 
@@ -898,8 +899,18 @@ async function _createVisibleFile(contentObj) {
     headers: {'Authorization': 'Bearer ' + _accessToken, 'Content-Type': `multipart/related; boundary=${boundary}`},
     body
   });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error('create failed (' + res.status + '): ' + err.slice(0, 200));
+  }
   const file = await res.json();
   return file.id;
+}
+
+// True if the granted token includes the full drive scope (read+write on
+// shared files), not just a narrow read-only/appdata variant.
+function _hasDriveWriteScope() {
+  return (_grantedScopes || '').split(/\s+/).includes('https://www.googleapis.com/auth/drive');
 }
 
 // Small deterministic hash for a boundary string (no Math.random dependency).
@@ -1031,8 +1042,18 @@ async function signIn() {
     callback: async (response) => {
       if (response.error) return;
       _accessToken = response.access_token;
+      _grantedScopes = response.scope || '';
       _updateAuthUI(true);
-      await _loadFromDrive();
+      if (!_hasDriveWriteScope()) {
+        alert('Google didn\'t grant the full Drive permission needed for shared data.\n\nMake sure the ".../auth/drive" scope is added in Google Cloud Console → OAuth consent screen → Data Access, then Sign out and Sign in again.');
+        return;
+      }
+      try {
+        await _loadFromDrive();
+      } catch(e) {
+        alert('Could not load or create your data file in Drive:\n' + e.message);
+        return;
+      }
       _applyDefaults();
       processRecurringItems();
       await _saveLocal();
@@ -1061,12 +1082,20 @@ async function loadState() {
         callback: async (response) => {
           if (!response.error && response.access_token) {
             _accessToken = response.access_token;
-            _updateAuthUI(true);
-            await _loadFromDrive();
-            _applyDefaults();
-            processRecurringItems();
-            await _saveLocal();
-            scanImportFolder(true);
+            _grantedScopes = response.scope || '';
+            // Silent path: only touch Drive if we actually have write scope.
+            // Otherwise leave the user signed-out-looking so an explicit
+            // Sign in re-consents to the new permission.
+            if (_hasDriveWriteScope()) {
+              _updateAuthUI(true);
+              try {
+                await _loadFromDrive();
+                _applyDefaults();
+                processRecurringItems();
+                await _saveLocal();
+                scanImportFolder(true);
+              } catch(e) { console.error('Drive load failed', e); }
+            }
           }
           res();
         }
