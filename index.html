@@ -1452,9 +1452,14 @@ function renderPlanList() {
     return;
   }
   el.innerHTML = plans.map(p => {
-    const label = p.mode === 'spread'
-      ? `Weekly split · ${(p.carryMode || 'carry') === 'drop' ? 'drops unused' : 'carries unused'}`
-      : `${fmt(p.amount)} — ${recurringLabel(p)}`;
+    let label;
+    if (p.mode === 'spread') {
+      const wk = spreadWeeklyEstimate(p.categoryId);
+      const rate = wk ? `${fmt(wk.perWeek)}/wk` : 'no budget set';
+      label = `${rate} · ${(p.carryMode || 'carry') === 'drop' ? 'drops unused' : 'carries unused'}`;
+    } else {
+      label = `${fmt(p.amount)} — ${recurringLabel(p)}`;
+    }
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0">
         <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.description}</div>
@@ -1659,6 +1664,25 @@ function populateRecurringCatSelect() {
   // All categories, all types — the plan's type comes from the category
   const sel = document.getElementById('recurring-cat');
   sel.innerHTML = TYPE_ORDER.map(t => buildCatOptions(t)).join('');
+}
+
+// Current weekly-split figures for a category: the base per-week rate
+// (budget minus this month's scheduled charges, over all weeks of the month).
+function spreadWeeklyEstimate(catId) {
+  const cat = getCat(catId);
+  const budget = state.budgets[catId];
+  if (!budget) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
+  const monthEnd = endOfMonthStr(today);
+  const fixedMonthTotal = (state.recurringItems || [])
+    .filter(p => p.active && p.categoryId === catId && p.mode !== 'spread')
+    .flatMap(p => planOccurrencesInRange(p, monthStart, monthEnd))
+    .reduce((a, o) => a + o.amount, 0);
+  const pool = Math.max(0, budget - fixedMonthTotal);
+  const weeks = [];
+  for (let d = monthStart; d <= monthEnd; d = addDays(d, 7)) weeks.push(d);
+  return { perWeek: weeks.length ? pool / weeks.length : 0, pool, weeks: weeks.length };
 }
 
 function updateSpreadPreview() {
