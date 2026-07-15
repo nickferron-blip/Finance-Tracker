@@ -768,11 +768,10 @@ const DEFAULT_BUDGETS = {
 
 // ===== PERSISTENCE — Google Drive + IndexedDB cache =====
 const CLIENT_ID = '168405386494-tl577olfbs8sjln89q5rm97jn3euimi7.apps.googleusercontent.com';
-// drive.appdata: hidden folder for this app's own data file.
-// drive.readonly: lets the app also scan a regular, visible Drive folder
-// ("Finance Tracker Imports") for CSV files dropped there by other tools
-// (e.g. Claude parsing an Apple Wallet screenshot) and auto-import them.
-const SCOPES = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly';
+// Full drive scope so the data file can live as a normal, shareable Drive file
+// (readable/writable by a partner it's been shared with) rather than the hidden
+// per-account appDataFolder. Also covers the "Finance Tracker Imports" scan.
+const SCOPES = 'https://www.googleapis.com/auth/drive';
 const FILE_NAME = 'finance-tracker-data.json';
 const IMPORT_FOLDER_NAME = 'Finance Tracker Imports';
 
@@ -854,32 +853,76 @@ function _showSaved() {
   setTimeout(() => el.style.opacity = '0', 1500);
 }
 
-async function _findOrCreateFile() {
+// Read the raw JSON content of a Drive file by id.
+async function _readDriveFile(id) {
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`,
+    {headers: {'Authorization': 'Bearer ' + _accessToken}});
+  if (!res.ok) return null;
+  const text = await res.text();
+  return text.trim() ? text : null;
+}
+
+// Find the shared/visible data file — searches everything the account can see,
+// which includes files another user has shared with them. Picks the most
+// recently modified if several exist.
+async function _findVisibleFile() {
+  const q = encodeURIComponent(`name='${FILE_NAME}' and trashed=false`);
+  const res = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,modifiedTime,ownedByMe)&orderBy=modifiedTime desc`,
+    {headers: {'Authorization': 'Bearer ' + _accessToken}}
+  );
+  const data = await res.json();
+  return data.files?.[0]?.id || null;
+}
+
+// Legacy hidden-folder file (pre-sharing). Used once to migrate data forward.
+async function _findAppDataFile() {
   const res = await fetch(
     `https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='${FILE_NAME}'&fields=files(id)`,
     {headers: {'Authorization': 'Bearer ' + _accessToken}}
   );
   const data = await res.json();
-  if (data.files?.length) return data.files[0].id;
-  const create = await fetch('https://www.googleapis.com/drive/v3/files', {
+  return data.files?.[0]?.id || null;
+}
+
+async function _createVisibleFile(contentObj) {
+  // Multipart upload so we can set the name and body in one request.
+  const boundary = 'ftb' + Math.abs(hashStr(FILE_NAME + _accessToken.slice(0,8)));
+  const meta = {name: FILE_NAME};
+  const body =
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(contentObj, null, 2)}\r\n` +
+    `--${boundary}--`;
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method: 'POST',
-    headers: {'Authorization': 'Bearer ' + _accessToken, 'Content-Type': 'application/json'},
-    body: JSON.stringify({name: FILE_NAME, parents: ['appDataFolder']})
+    headers: {'Authorization': 'Bearer ' + _accessToken, 'Content-Type': `multipart/related; boundary=${boundary}`},
+    body
   });
-  const file = await create.json();
+  const file = await res.json();
   return file.id;
 }
 
+// Small deterministic hash for a boundary string (no Math.random dependency).
+function hashStr(s) { let h = 0; for (let i=0;i<s.length;i++){ h = (h*31 + s.charCodeAt(i))|0; } return h; }
+
 async function _loadFromDrive() {
   try {
-    _driveFileId = await _findOrCreateFile();
-    const res = await fetch(
-      `https://www.googleapis.com/drive/v3/files/${_driveFileId}?alt=media`,
-      {headers: {'Authorization': 'Bearer ' + _accessToken}}
-    );
-    if (res.status === 404) return;
-    const text = await res.text();
-    if (text.trim()) state = JSON.parse(text);
+    let id = await _findVisibleFile();
+    if (id) {
+      _driveFileId = id;
+      const text = await _readDriveFile(id);
+      if (text) state = JSON.parse(text);
+      return;
+    }
+    // No visible file yet — migrate from the old hidden appDataFolder if present,
+    // otherwise create a fresh visible file from current (cached/default) state.
+    const legacyId = await _findAppDataFile();
+    let seed = state;
+    if (legacyId) {
+      const legacyText = await _readDriveFile(legacyId);
+      if (legacyText) { try { seed = JSON.parse(legacyText); state = seed; } catch(e){} }
+    }
+    _driveFileId = await _createVisibleFile(seed);
   } catch(e) { console.error('Drive load failed', e); }
 }
 
@@ -2666,6 +2709,25 @@ loadState().then(() => {
   document.getElementById('month-label').textContent = monthStr(state.currentMonth);
   renderAll();
   if (window.lucide) lucide.createIcons();
+});
+
+// Shared-data courtesy: when the tab regains focus, pull the latest from Drive
+// so a partner's changes show up. Skipped if a local save is pending (would
+// clobber unsaved edits) or a modal is open.
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!_accessToken || !_driveFileId || _saveTimer) return;
+  if (document.querySelector('.modal-overlay.open')) return;
+  try {
+    const text = await _readDriveFile(_driveFileId);
+    if (text) {
+      state = JSON.parse(text);
+      _applyDefaults();
+      await _saveLocal();
+      document.getElementById('month-label').textContent = monthStr(state.currentMonth);
+      renderAll();
+    }
+  } catch(e) {}
 });
 </script>
 </body>
