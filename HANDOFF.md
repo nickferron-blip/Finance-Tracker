@@ -66,21 +66,21 @@ Defined in `TYPE_META` / `TYPE_ORDER`:
 
 ```js
 const CLIENT_ID = '168405386494-tl577olfbs8sjln89q5rm97jn3euimi7.apps.googleusercontent.com';
-const SCOPES = 'https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/drive.readonly';
+const SCOPES = 'https://www.googleapis.com/auth/drive';   // full drive (shareable data file)
 const FILE_NAME = 'finance-tracker-data.json';
 const IMPORT_FOLDER_NAME = 'Finance Tracker Imports';
 ```
 
-- **Main data file** lives in Google Drive's hidden `appDataFolder` (not visible in the user's normal Drive) — scope `drive.appdata`
-- **IndexedDB** is a local cache so the app works instantly offline and doesn't wait on network before rendering
-- Save is debounced (800ms) and writes to both IndexedDB and Drive
-- On load: try silent token refresh first (no popup) → fall back to IndexedDB cache → show sign-in overlay if nothing works
-- Google Cloud Console project is already set up (OAuth client created, consent screen configured). The app is in **Testing** publishing status with the user's own Google account added as a test user — this is why sign-in works without full Google verification.
-
-### Recent addition: `drive.readonly` scope (Auto-import feature)
-This scope was added on top of `drive.appdata` so the app can also scan a **regular, visible** Drive folder (not the hidden app folder) — see section 5 below.
-
-**Setup step the user still needs to complete:** add scope `https://www.googleapis.com/auth/drive.readonly` under Google Cloud Console → APIs & Services → OAuth consent screen → Data Access → Add or Remove Scopes. Without this, requesting the new scope from the app may fail.
+- **Main data file** is now a **regular, visible** file `finance-tracker-data.json` in the user's My Drive (NOT the old hidden `appDataFolder`). This change was made so two people (a couple) can share one dataset with **separate** Google logins.
+  - `_findVisibleFile()` searches all accessible files by name (includes files shared-with-me by a partner), newest first.
+  - `_loadFromDrive()`: use the visible file if found; else migrate once from the legacy `appDataFolder` file (`_findAppDataFile`) into a new visible file (`_createVisibleFile`, multipart upload); else create fresh. The legacy appdata file is left intact as a backup.
+  - `_saveToDrive()` PATCHes the visible file by `_driveFileId`.
+- **Shared-data setup the user performs once**: (1) add full `.../auth/drive` scope in Google Cloud Console → OAuth consent → Data Access; (2) add partner as a test user; (3) sign out/in to migrate; (4) in drive.google.com, share `finance-tracker-data.json` with the partner as **Editor**. Partner then signs in with their own account and the app finds the shared file.
+- **Concurrency**: last-write-wins. Mitigation only — a `visibilitychange` listener reloads from Drive when the tab regains focus (skipped if a save is pending or a modal is open). No real merge; simultaneous edits can clobber. User accepted this tradeoff.
+- **IndexedDB** is a local cache so the app works instantly offline and doesn't wait on network before rendering.
+- Save is debounced (800ms) and writes to both IndexedDB and Drive.
+- On load: try silent token refresh first (no popup) → fall back to IndexedDB cache → show sign-in overlay if nothing works.
+- Google Cloud Console project is in **Testing** publishing status with the user (and now partner) added as test users — full `drive` is a "restricted" scope but Testing mode skips verification (users see an "unverified app" warning to click through).
 
 ---
 
