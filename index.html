@@ -1386,13 +1386,20 @@ function expectedOccurrences(horizon) {
     }); };
 
     // Fixed scheduled occurrences, consumed chronologically by actual spend.
+    // A scheduled charge is a one-time known event: once its real transaction
+    // has landed (its date is today-or-past and actual spend has reached it),
+    // it's DROPPED entirely — even if the actual amount differed from the
+    // estimate. Only genuinely-unrealized (future, or overdue-unpaid) charges
+    // stay in the forecast.
     const fixedOccs = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, horizon))
       .sort((a, b) => a.date.localeCompare(b.date));
     let actualLeft = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
     for (const o of fixedOccs) {
       const eat = Math.min(o.amount, actualLeft);
       actualLeft -= eat;
-      push(o, o.amount - eat);
+      const realized = eat > 0.005 && o.date <= today;
+      if (realized) continue;          // charge came in → drop remainder
+      push(o, o.amount - eat);          // future or not-yet-paid → keep expected
     }
 
     // Weekly split of the budget not covered by scheduled charges.
