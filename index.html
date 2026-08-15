@@ -2746,13 +2746,33 @@ function renderRules() {
   tbody.innerHTML = rules.map(([p, catId]) => {
     const isKw=p.startsWith('kw:'), label=isKw?p.slice(3):p, cat=getCat(catId);
     const par=getParent(cat);
+    const pJson = JSON.stringify(p).replace(/"/g,'&quot;');
+    const catOpts = state.categories.map(c =>
+      `<option value="${c.id}"${c.id===catId?' selected':''}>${catDisplayName(c)} (${c.type})</option>`).join('');
     return `<tr>
       <td><span class="badge" style="background:${isKw?'#6152d022':'#f0f2f8'};color:${isKw?'#7c6af7':'#6b7280'};font-size:11px">${isKw?'keyword':'exact'}</span></td>
-      <td style="font-family:monospace;font-size:13px">${label}</td>
-      <td><span class="badge" style="background:${par.color}22;color:${par.color}"><span class="dot" style="background:${par.color}"></span>${catDisplayName(cat)}</span></td>
-      <td><button class="btn btn-danger" onclick="deleteRule(${JSON.stringify(p)})">Delete</button></td>
+      <td><input value="${label.replace(/"/g,'&quot;')}" onchange="updateRulePattern(${pJson}, ${isKw}, this.value)" style="font-family:monospace;font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
+      <td><select onchange="updateRuleCat(${pJson}, this.value)" style="font-size:13px;padding:5px 8px;max-width:220px">${catOpts}</select></td>
+      <td><button class="btn btn-danger" onclick="deleteRule(${pJson})">Delete</button></td>
     </tr>`;
   }).join('');
+}
+
+function updateRulePattern(oldKey, isKw, newVal) {
+  const v = newVal.trim().toLowerCase();
+  const minLen = isKw ? 3 : 1;
+  if (!v || v.length < minLen) { renderRules(); return; }  // invalid → revert
+  const catId = state.rules[oldKey];
+  const newKey = (isKw ? 'kw:' : '') + v;
+  if (newKey !== oldKey) {
+    delete state.rules[oldKey];
+    state.rules[newKey] = catId;
+  }
+  save(); renderRules();
+}
+
+function updateRuleCat(key, newCatId) {
+  if (state.rules[key] !== undefined) { state.rules[key] = newCatId; save(); renderRules(); }
 }
 
 function deleteRule(p) { delete state.rules[p]; save(); renderRules(); }
