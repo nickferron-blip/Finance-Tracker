@@ -2058,14 +2058,16 @@ function renderTransactions() {
     curEl.style.color = closingBal !== null && closingBal < 0 ? 'var(--red)' : 'var(--green)';
   }
 
-  // Running balance per transaction (all month txns, chronological), so each
-  // row shows its true balance-after even when the list is filtered.
-  const balMap = {};
-  if (anchor) {
-    const chron = getMonthTxns(month).slice().sort((a,b)=>a.date.localeCompare(b.date));
-    let run = openingBal;
-    chron.forEach(t => { run += (t.type==='income' ? t.amount : -t.amount); balMap[t.id] = run; });
-  }
+  // Chronological order + running balance per transaction (all month txns), so
+  // each row shows its true balance-after even when filtered, and so the
+  // display can order consistently within a date.
+  const balMap = {}, seq = {};
+  const chron = getMonthTxns(month).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  let run = openingBal;
+  chron.forEach((t, i) => {
+    seq[t.id] = i;
+    if (anchor) { run += (t.type==='income' ? t.amount : -t.amount); balMap[t.id] = run; }
+  });
 
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const filterType = document.getElementById('txn-filter-type')?.value||'';
@@ -2074,7 +2076,9 @@ function renderTransactions() {
   if (search)     txns = txns.filter(t=>t.description.toLowerCase().includes(search));
   if (filterType) txns = txns.filter(t=>t.type===filterType);
   if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
-  txns.sort((a,b)=>b.date.localeCompare(a.date));
+  // Newest first, and within the same date newest-accumulated first, so the
+  // balance column decreases monotonically down the table.
+  txns.sort((a,b)=> b.date.localeCompare(a.date) || (seq[b.id]-seq[a.id]));
   visibleTxnIds = txns.map(t => t.id);
   // Drop selections no longer visible (filter/month changed)
   [...selectedTxns].forEach(id => { if (!visibleTxnIds.includes(id)) selectedTxns.delete(id); });
