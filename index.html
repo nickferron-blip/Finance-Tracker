@@ -395,7 +395,7 @@
         </div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">When you correct a transaction's category, the app learns it automatically. Add keyword rules to match any transaction containing that text.</p>
+        <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">When you change a transaction's category, the app suggests a merchant keyword to remember (you confirm or edit it). Any future transaction whose description contains that keyword is auto-categorized. You can also add keyword rules manually below.</p>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <span style="font-size:13px; color:var(--muted)">Learned rules:</span>
           <span id="rules-count" style="font-weight:700"></span>
@@ -1263,6 +1263,54 @@ function learnRule(description, categoryId) {
   state.rules[normDesc(description)] = categoryId; save();
 }
 
+// Boilerplate the bank wraps around the real merchant name (EN + FR / Quebec).
+// Longer phrases first so they're stripped before their sub-phrases.
+const BANK_NOISE = [
+  'achat interac sans contact','paiement interac sans contact','interac sans contact',
+  'achat interac','paiement interac','sans contact','retrait interac','interac',
+  'virement par banque en direct','par banque en direct','virement bancaire','virement',
+  'paiement preautorise','paiement préautorisé','paiement direct','frais mensuels','frais',
+  'depot de paie','dépôt de paie','depot','dépôt','retrait','transfert','paiement','achat',
+  'point of sale purchase','point of sale','pre-authorized payment','preauthorized',
+  'e-transfer','etransfer','withdrawal','deposit','purchase','payment','transfer','pos'
+];
+const KW_STOPWORDS = new Set(['de','du','des','la','le','les','en','par','et','ca','inc','ltd',
+  'ltee','ltée','co','corp','the','of','and','sa','au','aux','pour','a','to','on','no','ref']);
+
+// Pull the likely merchant keyword out of a noisy bank description.
+// Returns '' when nothing meaningful remains (e.g. a bare e-transfer + number).
+function extractKeyword(description) {
+  let s = ' ' + description.toLowerCase().replace(/[#*]/g, ' ') + ' ';
+  for (const p of BANK_NOISE) {
+    s = s.replace(new RegExp('\\b' + p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), ' ');
+  }
+  const tokens = s.split(/[^a-zà-ÿ]+/).filter(t => t.length >= 3 && !KW_STOPWORDS.has(t) && !/\d/.test(t));
+  if (!tokens.length) return '';
+  // First up-to-two significant tokens, in order — merchant names read L→R and
+  // two tokens ("ford credit", "tim hortons") are specific enough to avoid
+  // false matches while a single word ("dollarama") stays as-is.
+  return tokens.slice(0, 2).join(' ');
+}
+
+// Called when the user corrects a transaction's category. Proposes the
+// extracted keyword and lets them confirm/edit/skip, so learned rules are
+// real merchant keywords rather than dead full-description strings.
+function learnFromCorrection(description, categoryId) {
+  const guess = extractKeyword(description);
+  if (!guess) return; // nothing learnable — don't nag
+  const cat = getCat(categoryId);
+  const input = window.prompt(
+    `Auto-categorize future transactions containing this keyword as "${catDisplayName(cat)}"?\n\n` +
+    `Edit the keyword if needed, or press Cancel to skip.`,
+    guess
+  );
+  if (input === null) return;                 // Cancel → skip
+  const kw = input.trim().toLowerCase();
+  if (kw.length < 3) return;                  // too short/blank → skip
+  state.rules['kw:' + kw] = categoryId;
+  save();
+}
+
 // ===== UTILS =====
 function fmt(n) { return '$' + Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function uid()  { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
@@ -2102,9 +2150,9 @@ function bulkSetCategory(catId) {
     if (selectedTxns.has(t.id)) {
       t.categoryId = catId;
       t.type = cat.type; // keep type consistent with the category
-      learnRule(t.description, catId);
     }
   });
+  // Bulk is an explicit mass action — don't prompt to learn a rule per row.
   save(); renderAll();
 }
 
@@ -2137,9 +2185,9 @@ function hideCatSelect(id) {
 
 function inlineUpdateCat(id, catId) {
   const t = state.transactions.find(x=>x.id===id); if (!t) return;
-  learnRule(t.description, catId);
   t.categoryId = catId;
   save();
+  learnFromCorrection(t.description, catId);
   // Rebuild the badge with new category
   const cat = getCat(catId); const par = getParent(cat);
   const badge = document.getElementById(`catbadge-${id}`);
@@ -2218,14 +2266,16 @@ function saveTransaction() {
   const categoryId = document.getElementById('txn-cat').value;
   const notes = document.getElementById('txn-notes').value.trim();
   if (!amount || !date || !description || !categoryId) { alert('Please fill all required fields.'); return; }
+  let didCorrect = false;
   if (editingTxnId) {
     const t = state.transactions.find(x=>x.id===editingTxnId);
-    if (t.categoryId !== categoryId) learnRule(description, categoryId);
+    didCorrect = t.categoryId !== categoryId;
     Object.assign(t, {amount, date, description, categoryId, notes, type:currentTxnType});
   } else {
     state.transactions.push({id:uid(), amount, date, description, categoryId, notes, type:currentTxnType});
   }
   save(); closeModal('modal-txn'); renderAll();
+  if (didCorrect) learnFromCorrection(description, categoryId);
 }
 
 // ===== BUDGETS =====
