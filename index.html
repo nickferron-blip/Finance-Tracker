@@ -312,7 +312,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th style="width:32px"><input type="checkbox" id="txn-select-all" onchange="toggleSelectAll(this.checked)" style="width:auto;cursor:pointer"></th><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right">Amount</th><th></th></tr></thead>
+            <thead><tr><th style="width:32px"><input type="checkbox" id="txn-select-all" onchange="toggleSelectAll(this.checked)" style="width:auto;cursor:pointer"></th><th>Date</th><th>Description</th><th>Category</th><th>Type</th><th style="text-align:right">Amount</th><th style="text-align:right">Balance</th><th></th></tr></thead>
             <tbody id="txn-tbody"></tbody>
           </table>
         </div>
@@ -1643,6 +1643,21 @@ function currentBalance() {
   return bal;
 }
 
+// Balance at end of a given date, projected forward (or backward) from the
+// single real anchor. Handles dates on either side of the anchor.
+function balanceAsOf(dateStr) {
+  const a = state.balanceAnchor;
+  if (!a) return null;
+  let bal = a.amount;
+  const forward = dateStr >= a.date;
+  for (const t of state.transactions) {
+    const s = t.type === 'income' ? t.amount : -t.amount;
+    if (forward) { if (t.date > a.date && t.date <= dateStr) bal += s; }
+    else         { if (t.date > dateStr && t.date <= a.date) bal -= s; }
+  }
+  return bal;
+}
+
 function openBalanceModal() {
   const a = state.balanceAnchor;
   document.getElementById('balance-amount').value = a ? a.amount : '';
@@ -2027,21 +2042,35 @@ function buildCatOptions(type) {
 }
 
 function renderTransactions() {
-  // Balance bar: opening (anchor) and computed current balance
+  const month = state.currentMonth;
+  const monthStart = month + '-01';
+  const monthEnd = endOfMonthStr(monthStart);
+  const openingBal = balanceAsOf(addDays(monthStart, -1));   // end of prior month
+  const closingBal = balanceAsOf(monthEnd);                   // end of viewed month
+
+  // Balance bar — specific to the viewed month
   const anchor = state.balanceAnchor;
   const openEl = document.getElementById('txn-opening-balance');
   const curEl = document.getElementById('txn-current-balance');
-  if (openEl) openEl.textContent = anchor ? (anchor.amount < 0 ? '-' : '') + fmt(anchor.amount) + ' (as of ' + anchor.date + ')' : 'Not set';
+  if (openEl) openEl.textContent = openingBal !== null ? (openingBal < 0 ? '-' : '') + fmt(openingBal) : (anchor ? '—' : 'Not set');
   if (curEl) {
-    const bal = currentBalance();
-    curEl.textContent = bal !== null ? (bal < 0 ? '-' : '') + fmt(bal) : '—';
-    curEl.style.color = bal !== null && bal < 0 ? 'var(--red)' : 'var(--green)';
+    curEl.textContent = closingBal !== null ? (closingBal < 0 ? '-' : '') + fmt(closingBal) : '—';
+    curEl.style.color = closingBal !== null && closingBal < 0 ? 'var(--red)' : 'var(--green)';
+  }
+
+  // Running balance per transaction (all month txns, chronological), so each
+  // row shows its true balance-after even when the list is filtered.
+  const balMap = {};
+  if (anchor) {
+    const chron = getMonthTxns(month).slice().sort((a,b)=>a.date.localeCompare(b.date));
+    let run = openingBal;
+    chron.forEach(t => { run += (t.type==='income' ? t.amount : -t.amount); balMap[t.id] = run; });
   }
 
   const search = (document.getElementById('txn-search')?.value||'').toLowerCase();
   const filterType = document.getElementById('txn-filter-type')?.value||'';
   const filterCat  = document.getElementById('txn-filter-cat')?.value||'';
-  let txns = getMonthTxns(state.currentMonth);
+  let txns = getMonthTxns(month);
   if (search)     txns = txns.filter(t=>t.description.toLowerCase().includes(search));
   if (filterType) txns = txns.filter(t=>t.type===filterType);
   if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
@@ -2099,6 +2128,7 @@ function renderTransactions() {
       <td style="text-align:right;font-weight:700;color:${t.type==='income'?'var(--green)':t.type==='expense'?'var(--red)':TYPE_META[t.type].color}">
         ${t.type==='income'?'+':'−'}${fmt(t.amount)}
       </td>
+      <td style="text-align:right;font-weight:600;color:${balMap[t.id]!==undefined && balMap[t.id]<0 ? 'var(--red)' : 'var(--muted)'}">${balMap[t.id]!==undefined ? (balMap[t.id]<0?'-':'')+fmt(balMap[t.id]) : '—'}</td>
       <td><button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
     </tr>`;
   }).join('');
