@@ -399,7 +399,8 @@
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <span style="font-size:13px; color:var(--muted)">Learned rules:</span>
           <span id="rules-count" style="font-weight:700"></span>
-          <button class="btn btn-outline btn-sm" onclick="clearLearnedRules()" style="margin-left:auto; border-color:var(--red); color:var(--red)">Clear all</button>
+          <button class="btn btn-outline btn-sm" onclick="cleanupRules()" style="margin-left:auto">Clean up</button>
+          <button class="btn btn-outline btn-sm" onclick="clearLearnedRules()" style="border-color:var(--red); color:var(--red)">Clear all</button>
         </div>
       </div>
       <div class="card">
@@ -2758,6 +2759,42 @@ function deleteRule(p) { delete state.rules[p]; save(); renderRules(); }
 function clearLearnedRules() {
   if (!confirm('Delete all learned rules?')) return;
   state.rules={}; save(); renderRules();
+}
+
+// Convert legacy full-description "exact" rules into keyword rules using the
+// same merchant extractor. Drops ones with no usable keyword, dedupes to a
+// single rule per keyword (most-frequent category wins), and leaves existing
+// keyword rules untouched.
+function cleanupRules() {
+  const exact = Object.entries(state.rules).filter(([k]) => !k.startsWith('kw:'));
+  if (!exact.length) { alert('Nothing to clean up — all rules are already keyword rules.'); return; }
+
+  const byKw = {};   // 'kw:foo' -> { catId: count }
+  let dropped = 0;
+  for (const [desc, catId] of exact) {
+    const kw = extractKeyword(desc);
+    if (!kw || kw.length < 3) { dropped++; continue; }
+    const key = 'kw:' + kw;
+    (byKw[key] = byKw[key] || {});
+    byKw[key][catId] = (byKw[key][catId] || 0) + 1;
+  }
+  const newCount = Object.keys(byKw).filter(k => !state.rules[k]).length;
+
+  if (!confirm(
+    `Clean up ${exact.length} old exact rule${exact.length===1?'':'s'}?\n\n` +
+    `• ${newCount} will become keyword rule${newCount===1?'':'s'}\n` +
+    `• ${dropped} with no usable keyword will be removed\n` +
+    `• Existing keyword rules are kept`
+  )) return;
+
+  for (const [k] of exact) delete state.rules[k];
+  for (const [key, cats] of Object.entries(byKw)) {
+    if (state.rules[key]) continue; // don't overwrite an existing keyword rule
+    const bestCat = Object.entries(cats).sort((a, b) => b[1] - a[1])[0][0];
+    state.rules[key] = bestCat;
+  }
+  save(); renderRules();
+  alert('Cleanup done.');
 }
 
 function openAddRuleModal() {
