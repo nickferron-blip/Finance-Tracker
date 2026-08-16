@@ -328,7 +328,7 @@
           <button class="btn btn-primary" onclick="openBudgetModal()">+ Set Budget</button>
         </div>
       </div>
-      <div class="card" id="budget-list"></div>
+      <div id="budget-list"></div>
     </div>
 
 
@@ -2440,7 +2440,7 @@ function renderBudgets() {
   const invGroups = buildGroups('investment');
   const allGroups = [...expGroups, ...incGroups, ...savGroups, ...invGroups];
 
-  if (!allGroups.length) { listEl.innerHTML = '<div class="empty">No budgets set. Click "+ Set Budget" to add one.</div>'; return; }
+  if (!allGroups.length) { listEl.innerHTML = '<div class="card"><div class="empty">No budgets set. Click "+ Set Budget" to add one.</div></div>'; return; }
 
   function renderGroup({p, spent, limit, subs, type}) {
     const isIncome = type === 'income';
@@ -2483,19 +2483,19 @@ function renderBudgets() {
     </div>`;
   }
 
-  function sectionHtml(title, groups, first) {
+  function sectionHtml(title, groups) {
     if (!groups.length) return '';
-    const wrap = first
-      ? `<div style="margin-bottom:8px">`
-      : `<div style="margin-top:32px;padding-top:24px;border-top:2px solid var(--border)">`;
-    return `${wrap}<h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">${title}</h3>${groups.map(renderGroup).join('')}</div>`;
+    return `<div class="card" style="margin-bottom:18px">
+      <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">${title}</h3>
+      ${groups.map(renderGroup).join('')}
+    </div>`;
   }
 
   listEl.innerHTML =
-    sectionHtml('Expenses', expGroups, true) +
-    sectionHtml('Income', incGroups, !expGroups.length) +
-    sectionHtml('Savings', savGroups, !expGroups.length && !incGroups.length) +
-    sectionHtml('Investments', invGroups, !expGroups.length && !incGroups.length && !savGroups.length);
+    sectionHtml('Expenses', expGroups) +
+    sectionHtml('Income', incGroups) +
+    sectionHtml('Savings', savGroups) +
+    sectionHtml('Investments', invGroups);
 
   // ── Dashboard Budget vs Actual ── show every category with spending or a budget
   const chartItems = allGroups.filter(x=>x.limit>0 || x.spent>0);
