@@ -458,14 +458,19 @@
 <!-- Budget Modal -->
 <div class="modal-overlay" id="modal-budget">
   <div class="modal">
-    <h2>Set Budget</h2>
+    <h2 id="modal-budget-title">New Budget Account</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">A budget account is a line item inside a category (e.g. "Groceries" inside Food &amp; Dining), with its own monthly amount.</p>
     <div class="form-grid">
       <div class="form-group full">
         <label>Category</label>
         <select id="budget-cat"></select>
       </div>
       <div class="form-group full">
-        <label>Monthly Limit ($)</label>
+        <label>Budget account name</label>
+        <input type="text" id="budget-acct-name" placeholder="e.g. Groceries, Mortgage, Netflix">
+      </div>
+      <div class="form-group full">
+        <label>Monthly amount ($)</label>
         <input type="number" id="budget-amount" placeholder="0.00" step="0.01" min="0">
       </div>
     </div>
@@ -528,8 +533,11 @@
           <option value="investment">Investment</option>
         </select>
       </div>
-      <div class="form-group full">
-        <label>Parent category (optional — leave blank to create a top-level category)</label>
+      <!-- Categories are top-level containers; budget accounts (sub-categories)
+           are created via "+ Set Budget". Parent selector kept hidden for
+           backward compatibility with existing sub-categories. -->
+      <div class="form-group full" id="cat-parent-group" style="display:none">
+        <label>Parent category</label>
         <select id="cat-parent" onchange="onParentChange()">
           <option value="">— Top-level category —</option>
         </select>
@@ -547,6 +555,7 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-danger" id="cat-delete-btn" onclick="deleteCategoryFromModal()" style="margin-right:auto;display:none">Delete</button>
       <button class="btn btn-outline" onclick="closeModal('modal-cat')">Cancel</button>
       <button class="btn btn-primary" onclick="saveCategory()">Save</button>
     </div>
@@ -2431,7 +2440,9 @@ function renderBudgets() {
       const spent = subs.reduce((a,x)=>a+x.spent, 0) || netCatAmount(p.id, type, txns);
       const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
       return {p, spent, limit, subs, type};
-    }).filter(x=>x.limit||x.spent>0||x.subs.length>0);
+    });
+    // Show every category (even empty ones you just created); hidden ones are
+    // never rendered anyway once they have no data.
   }
 
   const expGroups = buildGroups('expense');
@@ -2453,7 +2464,7 @@ function renderBudgets() {
         : `<span style="color:var(--green);font-weight:600">${fmt(remaining >= 0 ? remaining : -remaining)} ${remaining >= 0 ? 'remaining' : 'over'}</span>`)
       : `<span style="color:var(--muted)">${fmt(spent)} ${isIncome ? 'received' : 'spent'}</span>`;
 
-    const circles = (subs.length ? subs : [{s:p, spent, limit}]).map(({s, spent:ss, limit:sl}) => {
+    const circles = subs.map(({s, spent:ss, limit:sl}) => {
       const pct = sl ? (ss / sl) * 100 : 0;
       const sover = !isIncome && sl && ss > sl;
       const rem = sl ? sl - ss : null;
@@ -2474,12 +2485,20 @@ function renderBudgets() {
       </div>`;
     }).join('');
 
+    // "Add budget account" tile at the end of each category's circles.
+    const addTile = `<div class="budget-circle-item" onclick="openBudgetModal(null,'${p.id}')" title="Add a budget account to ${p.name}" style="cursor:pointer">
+      <div class="budget-ring-wrap" style="display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:50%;color:var(--muted)">
+        <span style="font-size:26px;line-height:1">+</span>
+      </div>
+      <div class="budget-circle-name" style="color:var(--muted)">Add account</div>
+    </div>`;
+
     return `<div class="budget-group">
       <div class="budget-group-header">
-        <span class="budget-group-title" style="color:${p.color}">${p.name}</span>
-        <span class="budget-group-totals">${fmt(spent)}${limit ? ' / ' + fmt(limit) : ''} &nbsp;·&nbsp; ${totalLabel}</span>
+        <span class="budget-group-title" style="color:${p.color};cursor:pointer" onclick="openCatModal('${p.id}')" title="Edit category">${p.name}</span>
+        <span class="budget-group-totals">${subs.length ? fmt(spent) + (limit ? ' / ' + fmt(limit) : '') + ' &nbsp;·&nbsp; ' + totalLabel : '<span style="color:var(--muted)">no accounts yet</span>'}</span>
       </div>
-      <div class="budget-circles">${circles}</div>
+      <div class="budget-circles">${circles}${addTile}</div>
     </div>`;
   }
 
@@ -2583,15 +2602,27 @@ function toggleBudgetCat(id) {
   renderBudgets();
 }
 
-function openBudgetModal(preselect) {
-  // Only sub-categories can have budgets; parents are rollups
-  const parents = parentCats('expense');
-  document.getElementById('budget-cat').innerHTML = parents.map(p => {
-    const subs = subCats(p.id);
-    if (!subs.length) return `<option value="${p.id}"${preselect===p.id?' selected':''}>${p.name}</option>`;
-    return `<optgroup label="${p.name}">${subs.map(s=>`<option value="${s.id}"${preselect===s.id?' selected':''}>${s.name}</option>`).join('')}</optgroup>`;
+let editingBudgetSubId = null;
+
+// preselectSub = an existing budget-account (sub-category) id to edit;
+// preselectParent = a category (parent) id to pre-select when creating a new one.
+function openBudgetModal(preselectSub, preselectParent) {
+  editingBudgetSubId = preselectSub || null;
+  const editSub = preselectSub ? getCat(preselectSub) : null;
+  const parentIdSel = editSub ? editSub.parentId : preselectParent;
+
+  // Category dropdown = all top-level categories, grouped by type.
+  const catSel = document.getElementById('budget-cat');
+  catSel.innerHTML = TYPE_ORDER.map(t => {
+    const parents = parentCats(t);
+    if (!parents.length) return '';
+    return `<optgroup label="${TYPE_META[t].label}">${parents.map(p =>
+      `<option value="${p.id}"${p.id===parentIdSel?' selected':''}>${p.name}</option>`).join('')}</optgroup>`;
   }).join('');
-  document.getElementById('budget-amount').value = preselect ? (state.budgets[preselect] || '') : '';
+
+  document.getElementById('modal-budget-title').textContent = editSub ? 'Edit Budget Account' : 'New Budget Account';
+  document.getElementById('budget-acct-name').value = editSub ? editSub.name : '';
+  document.getElementById('budget-amount').value = editSub ? (state.budgets[preselectSub] || '') : '';
   document.getElementById('modal-budget').classList.add('open');
 }
 
@@ -2607,10 +2638,27 @@ function goToTransactions(catId) {
 }
 
 function saveBudget() {
-  const catId = document.getElementById('budget-cat').value;
+  const parentId = document.getElementById('budget-cat').value;
+  const name = document.getElementById('budget-acct-name').value.trim();
   const amt = parseFloat(document.getElementById('budget-amount').value);
-  if (!amt) { alert('Enter a budget amount.'); return; }
-  state.budgets[catId] = amt; save(); closeModal('modal-budget'); renderBudgets();
+  if (!parentId) { alert('Pick a category.'); return; }
+  if (!name) { alert('Enter a budget account name.'); return; }
+  if (isNaN(amt) || amt < 0) { alert('Enter a valid amount.'); return; }
+  const parent = getCat(parentId);
+
+  if (editingBudgetSubId) {
+    // Edit existing budget account
+    const sub = state.categories.find(c => c.id === editingBudgetSubId);
+    if (sub) Object.assign(sub, {name, parentId, type: parent.type, color: parent.color});
+    state.budgets[editingBudgetSubId] = amt;
+  } else {
+    // Create a new budget account (sub-category) under the chosen category
+    const id = uid();
+    state.categories.push({id, name, type: parent.type, color: parent.color, parentId});
+    state.budgets[id] = amt;
+  }
+  editingBudgetSubId = null;
+  save(); closeModal('modal-budget'); renderAll();
 }
 
 // ===== CATEGORIES =====
@@ -2683,9 +2731,14 @@ function openCatModal(id) {
   document.getElementById('cat-name').value = cat ? cat.name : '';
   document.getElementById('cat-type').value = cat ? cat.type : 'expense';
   refreshParentSelect();
-  if (cat?.parentId) document.getElementById('cat-parent').value = cat.parentId;
+  // Only surface the parent selector when editing an existing sub-category
+  // (budget account). New categories are always top-level.
+  const isSub = !!cat?.parentId;
+  document.getElementById('cat-parent-group').style.display = isSub ? 'block' : 'none';
+  if (isSub) document.getElementById('cat-parent').value = cat.parentId;
   selectedColor = cat ? cat.color : COLORS[0];
   renderColorGrid();
+  document.getElementById('cat-delete-btn').style.display = cat ? 'block' : 'none';
   document.getElementById('modal-cat').classList.add('open');
 }
 
@@ -2733,6 +2786,25 @@ function deleteCategory(id) {
   state.categories = state.categories.filter(c=>c.id!==id && c.parentId!==id);
   delete state.budgets[id];
   save(); renderAll();
+}
+
+function deleteCategoryFromModal() {
+  if (!editingCatId) return;
+  const cat = getCat(editingCatId);
+  const subs = subCats(editingCatId);
+  const txnCount = state.transactions.filter(t => t.categoryId === editingCatId || subs.some(s=>s.id===t.categoryId)).length;
+  let msg = `Delete "${cat.name}"`;
+  if (subs.length) msg += ` and its ${subs.length} budget account${subs.length===1?'':'s'}`;
+  msg += '?';
+  if (txnCount) msg += `\n\n${txnCount} transaction${txnCount===1?'':'s'} use it — they'll become uncategorized (reassign them to Unknown).`;
+  if (!confirm(msg)) return;
+  const removeIds = [editingCatId, ...subs.map(s=>s.id)];
+  const unknownId = state.categories.find(c=>c.name==='Unknown')?.id;
+  state.transactions.forEach(t => { if (removeIds.includes(t.categoryId) && unknownId) { t.categoryId = unknownId; t.type = 'expense'; } });
+  state.categories = state.categories.filter(c => !removeIds.includes(c.id));
+  removeIds.forEach(id => delete state.budgets[id]);
+  editingCatId = null;
+  save(); closeModal('modal-cat'); renderAll();
 }
 
 // ===== POPULATE SELECTS =====
