@@ -2055,13 +2055,13 @@ function netCatAmount(catId, type, txns) {
 function renderDashboard() {
   renderDashboardCashflow();
   const txns = getMonthTxns(state.currentMonth);
-  // Net totals (reimbursements/refunds assigned to the same category offset the
-  // amount). Income = income categories; Expenses = ALL outflows that left the
-  // account this month — expenses PLUS savings & investment transfers — so Net
-  // Balance reflects the real change in cash. (The Budgets page still keeps
-  // savings/investment in their own sections; this is the cash-flow view.)
-  const income   = state.categories.filter(c=>c.type==='income').reduce((a,c)=>a+netCatAmount(c.id,'income',txns), 0);
-  const expenses = state.categories.filter(c=>c.type!=='income').reduce((a,c)=>a+netCatAmount(c.id, c.type, txns), 0);
+  // Cash-flow view, by TRANSACTION type (matches the running-balance math):
+  // Income  = income-typed transactions.
+  // Expenses = every outflow that left the account — expense + savings +
+  //            investment transfers.
+  // Net Balance = Income − Expenses = the real change in cash this month.
+  const income   = txns.filter(t => t.type === 'income').reduce((s,t)=>s+t.amount, 0);
+  const expenses = txns.filter(t => t.type !== 'income').reduce((s,t)=>s+t.amount, 0);
   document.getElementById('dash-income').textContent = fmt(income);
   document.getElementById('dash-expenses').textContent = fmt(expenses);
   const net = income - expenses;
