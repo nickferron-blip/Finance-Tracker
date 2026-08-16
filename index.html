@@ -37,10 +37,14 @@
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; min-height: 100vh; }
+  body { background: var(--bg); color: var(--text); font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; font-size: 14px; }
 
   /* ── Layout ── */
-  .app { display: grid; grid-template-columns: 230px 1fr; grid-template-rows: 72px 1fr; height: 100vh; overflow: hidden; }
+  /* 100dvh (dynamic viewport height) so the fixed header/sidebar stay pinned on
+     iOS/iPad Safari, where 100vh is taller than the visible area. Falls back to
+     100vh on browsers without dvh support. */
+  html, body { height: 100vh; height: 100dvh; overflow: hidden; }
+  .app { display: grid; grid-template-columns: 230px 1fr; grid-template-rows: 72px 1fr; height: 100vh; height: 100dvh; overflow: hidden; }
 
   /* ── Header ── */
   header { grid-column: 1/-1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 28px; gap: 16px; box-shadow: var(--shadow); }
@@ -60,7 +64,7 @@
   nav .nav-spacer { flex: 1; }
 
   /* ── Main ── */
-  main { padding: 28px; overflow-y: auto; background: var(--bg); }
+  main { padding: 28px; overflow-y: auto; -webkit-overflow-scrolling: touch; background: var(--bg); }
   .page { display: none; }
   .page.active { display: block; }
 
