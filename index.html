@@ -1744,11 +1744,17 @@ function renderDashboardCashflow() {
   const monthEnd = endOfMonthStr(today);
 
   // Look far enough ahead to find the next payday even past month-end.
-  // "Next payday" means the next income STRICTLY after today — if today is a
-  // payday (pay already in hand), the relevant window is surviving until the
-  // FOLLOWING pay, so today's occurrence doesn't count as "next".
+  // "Next payday" = the next SALARY strictly after today (benefits, extra
+  // income, etc. don't count as payday). Identified by the income plan's
+  // category living under a "Salary" category. Falls back to any income if
+  // there are no salary plans.
   const lookahead = expectedOccurrences(addDays(today, 60));
-  const nextPayday = lookahead.find(o => o.item.type === 'income' && o.due > today)?.due || null;
+  const isSalary = o => {
+    const cat = getCat(o.item.categoryId); const par = cat ? getParent(cat) : null;
+    return par && par.name.toLowerCase() === 'salary';
+  };
+  const futureIncome = lookahead.filter(o => o.item.type === 'income' && o.due > today);
+  const nextPayday = (futureIncome.find(isSalary) || futureIncome[0])?.due || null;
 
   const horizon = nextPayday && nextPayday > monthEnd ? nextPayday : monthEnd;
   const occurrences = lookahead.filter(o => o.due <= horizon);
