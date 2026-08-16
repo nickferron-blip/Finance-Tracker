@@ -2183,10 +2183,10 @@ function renderTransactions() {
         ${t.type==='income'?'+':'−'}${fmt(t.amount)}
       </td>
       <td style="text-align:right;font-weight:600;color:${balMap[t.id]!==undefined && balMap[t.id]<0 ? 'var(--red)' : 'var(--muted)'}">${balMap[t.id]!==undefined ? (balMap[t.id]<0?'-':'')+fmt(balMap[t.id]) : '—'}</td>
-      <td style="display:flex;gap:6px;white-space:nowrap">
+      <td><div style="display:flex;gap:6px;white-space:nowrap">
         <button class="btn btn-sm btn-outline" onclick="openRuleFromTxn('${t.id}')" title="Create an auto-categorize rule from this transaction">+ Rule</button>
         <button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button>
-      </td>
+      </div></td>
     </tr>`;
   }).join('');
   // Set selected category for each row after render
@@ -2630,10 +2630,10 @@ function renderCategories() {
       <td><span style="color:${TYPE_META[p.type].color}">${p.type}</span></td>
       <td>${subs.length}</td>
       <td>${txnCount}</td>
-      <td style="display:flex;gap:6px;align-items:center">
+      <td><div style="display:flex;gap:6px;align-items:center">
         <button class="btn btn-sm btn-outline" onclick="openCatModal('${p.id}')">Edit</button>
         ${txnCount===0&&subs.length===0?`<button class="btn btn-danger" onclick="deleteCategory('${p.id}')">Delete</button>`:''}
-      </td>
+      </div></td>
     </tr>`;
     subs.forEach(s => {
       const sc = state.transactions.filter(t=>t.categoryId===s.id).length;
@@ -2642,10 +2642,10 @@ function renderCategories() {
         <td style="color:var(--muted)">↳ ${s.name}</td>
         <td></td><td></td>
         <td style="color:var(--muted)">${sc}</td>
-        <td style="display:flex;gap:6px;align-items:center">
+        <td><div style="display:flex;gap:6px;align-items:center">
           <button class="btn btn-sm btn-outline" onclick="openCatModal('${s.id}')">Edit</button>
           ${sc===0?`<button class="btn btn-danger" onclick="deleteCategory('${s.id}')">Delete</button>`:''}
-        </td>
+        </div></td>
       </tr>`;
     });
   });
@@ -2844,7 +2844,7 @@ function renderRules() {
       <td><input value="${(r.kw||'').replace(/"/g,'&quot;')}" onchange="updateRuleKw('${r.id}', this.value)" style="font-family:monospace;font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
       <td style="font-size:13px;color:var(--muted);white-space:nowrap">${amtLabel}</td>
       <td><select onchange="updateRuleCat('${r.id}', this.value)" style="font-size:13px;padding:5px 8px;max-width:200px">${catOpts}</select></td>
-      <td style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="editRule('${r.id}')">Edit</button><button class="btn btn-danger" onclick="deleteRule('${r.id}')">Delete</button></td>
+      <td><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="editRule('${r.id}')">Edit</button><button class="btn btn-danger" onclick="deleteRule('${r.id}')">Delete</button></div></td>
     </tr>`;
   }).join('');
 }
