@@ -2707,11 +2707,19 @@ function saveCategory() {
     const cat = state.categories.find(c => c.id === editingCatId);
     if (cat) {
       const typeChanged = cat.type !== type;
+      const wasParent = !cat.parentId;
       Object.assign(cat, {name, type, color, parentId});
-      // Retag existing transactions assigned to this category so their type
-      // matches the category's new type — otherwise budget totals break.
       if (typeChanged) {
+        // Retag transactions in this category so their type matches.
         state.transactions.forEach(t => { if (t.categoryId === editingCatId) t.type = type; });
+        // Cascade to sub-categories (and their transactions) when a parent's
+        // type changes — so the whole group moves to the right section card.
+        if (wasParent && !parentId) {
+          state.categories.filter(c => c.parentId === editingCatId).forEach(sub => {
+            sub.type = type;
+            state.transactions.forEach(t => { if (t.categoryId === sub.id) t.type = type; });
+          });
+        }
       }
     }
   } else {
