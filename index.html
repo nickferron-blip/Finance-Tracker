@@ -1751,7 +1751,16 @@ function renderDashboardCashflow() {
   const latestPrev   = (list) => list.map(p => lastOccOnOrBefore(p, today)).filter(Boolean).sort().pop() || null;
 
   const nextPayday = earliestNext(salPlans) || earliestNext(incPlans);
-  const lastPayday = latestPrev(salPlans) || latestPrev(incPlans) || monthStart;
+
+  // "Last pay" = the ACTUAL most recent salary received (an income transaction
+  // in a Salary category), so the pay period reflects reality rather than the
+  // plan's scheduled date. Falls back to the plan schedule, then month start.
+  const salaryCatIds = new Set(state.categories.filter(c => isSalaryCat(c.id)).map(c => c.id));
+  const salaryTxnDates = state.transactions
+    .filter(t => t.type === 'income' && salaryCatIds.has(t.categoryId) && t.date <= today)
+    .map(t => t.date).sort();
+  const lastPayday = (salaryTxnDates.length ? salaryTxnDates[salaryTxnDates.length - 1] : null)
+    || latestPrev(salPlans) || latestPrev(incPlans) || monthStart;
 
   // Window 1 — until next payday: pay period is [lastPayday → day before nextPayday].
   const paydayEnd = nextPayday ? addDays(nextPayday, -1) : monthEnd;
