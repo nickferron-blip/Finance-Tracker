@@ -1548,86 +1548,82 @@ function nextDueFromToday(plan, today) {
   return due && due >= today ? due : (plan.schedule.kind === 'once' ? null : due);
 }
 
-// Forecast engine: for each category with active plans, list this month's
-// expected occurrences and consume them chronologically with the category's
-// actual net spend this month. What survives (dated >= today; overdue
-// occurrences surface as due today) is the remaining expected cashflow.
-// Exact charges (mortgage) zero out when the real transaction lands; estimates
-// (groceries) shrink as real spending eats the earliest occurrences.
-function expectedOccurrences(horizon) {
+function daysBetween(a, b) {
+  return Math.round((new Date(b + 'T00:00:00') - new Date(a + 'T00:00:00')) / 86400000);
+}
+
+// Earliest plan occurrence on/after `from`.
+function nextOccOnOrAfter(plan, from) {
+  let due = initialDue(plan), g = 0;
+  while (due && due < from && plan.schedule.kind !== 'once' && g++ < 2000) due = nextOccurrence(plan, due);
+  return due && due >= from ? due : null;
+}
+// Latest plan occurrence on/before `to`.
+function lastOccOnOrBefore(plan, to) {
+  let due = initialDue(plan), prev = null, g = 0;
+  while (due && due <= to && g++ < 2000) { prev = due; if (plan.schedule.kind === 'once') break; due = nextOccurrence(plan, due); }
+  return prev;
+}
+
+function isSalaryCat(catId) {
+  const cat = getCat(catId); const par = cat ? getParent(cat) : null;
+  return !!par && par.name.toLowerCase() === 'salary';
+}
+
+// Window forecast: remaining expected cash movements between `periodStart`
+// (used only to prorate/consume weekly estimates) and `windowEnd` (last date
+// shown). Scheduled charges appear at their real dates; weekly-split estimates
+// collapse to ONE stable, period-based amount per category:
+//   expected for period − actual spent in period (so it only moves when real
+//   transactions land, not as the days pass).
+function windowForecast(periodStart, windowEnd) {
   const today = new Date().toISOString().slice(0, 10);
+  const dim = daysInMonth(today);
   const monthStart = today.slice(0, 8) + '01';
-  const realMonthTxns = state.transactions.filter(t => t.date >= monthStart && t.date <= endOfMonthStr(today));
+  const monthEnd = endOfMonthStr(today);
   const plans = (state.recurringItems || []).filter(p => p.active);
   const byCat = {};
   plans.forEach(p => { (byCat[p.categoryId] = byCat[p.categoryId] || []).push(p); });
 
-  const monthEnd = endOfMonthStr(today);
-  const remaining = [];
+  const items = [];
+  const push = (o, amt, estimate) => { if (amt > 0.005) items.push({
+    item: {description: o.plan.description, type: o.plan.type || getCat(o.plan.categoryId||'').type || 'expense',
+           amount: amt, categoryId: o.plan.categoryId, estimate: !!estimate, dateShown: estimate ? null : o.date},
+    due: estimate ? windowEnd : o.date
+  }); };
+
   for (const [catId, catPlans] of Object.entries(byCat)) {
     const cat = getCat(catId);
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
-    // estimate=true → weekly-split item with no genuine charge date (shown blank).
-    // All occurrences pushed here are already dated today-or-later.
-    const push = (o, amt, estimate) => { if (amt > 0.005) remaining.push({
-      item: {description: o.plan.description, type: o.plan.type || cat.type, amount: amt, categoryId: catId,
-             estimate: !!estimate, dateShown: estimate ? null : o.date},
-      due: o.date
-    }); };
 
-    // Fixed scheduled occurrences from TODAY forward. A past occurrence is
-    // considered done and does NOT resurface (its next occurrence is what
-    // matters). A today-or-later charge already paid — actual spend dated on/
-    // after today — is consumed and dropped, even if the amount differed.
-    const fixedFuture = fixedPlans.flatMap(p => planOccurrencesInRange(p, today, horizon))
+    // Scheduled charges from today → windowEnd; a today-or-later charge already
+    // paid (actual spend on/after today) is consumed and dropped.
+    const fixedFuture = fixedPlans.flatMap(p => planOccurrencesInRange(p, today, windowEnd).map(o => ({...o, plan: {...o.plan, categoryId: catId}})))
       .sort((a, b) => a.date.localeCompare(b.date));
-    let paidFromToday = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns.filter(t => t.date >= today)));
+    let paidFromToday = Math.max(0, netCatAmount(catId, cat.type, state.transactions.filter(t => t.date >= today && t.date <= windowEnd)));
     for (const o of fixedFuture) {
       const eat = Math.min(o.amount, paidFromToday);
       paidFromToday -= eat;
       push(o, o.amount - eat, false);
     }
 
-    // Weekly split of the budget not covered by scheduled charges.
+    // Weekly split → one stable, period-based estimate for this category.
     if (spreadPlan && state.budgets[catId]) {
-      // Pool is reduced by ALL of this month's scheduled charges (past + future).
       const fixedMonthTotal = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, monthEnd))
         .reduce((a, o) => a + o.amount, 0);
       const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
-      // Estimate markers every 7 days from today through month end.
-      const markers = [];
-      for (let d = today; d <= monthEnd; d = addDays(d, 7)) markers.push(d);
-      const mode = spreadPlan.carryMode || 'carry';
-      if (mode === 'drop') {
-        // True weekly rate = monthly pool × 7 / days-in-month; each future
-        // marker projects that full rate, underspend is dropped.
-        const rate = pool * 7 / daysInMonth(today);
-        markers.forEach(d => push({plan: spreadPlan, date: d}, rate, true));
-      } else {
-        // Carry: unspent budget rolls forward — remaining pool (this month's
-        // spend subtracted) spread evenly across the remaining markers so the
-        // full budget is still projected to be spent by month end.
-        const monthSpend = Math.max(0, netCatAmount(catId, cat.type, realMonthTxns));
-        const remPool = Math.max(0, pool - monthSpend);
-        const perC = markers.length ? remPool / markers.length : 0;
-        markers.forEach(d => push({plan: spreadPlan, date: d}, perC, true));
-      }
+      const weeklyRate = pool * 7 / dim;
+      const periodDays = Math.max(1, daysBetween(periodStart, windowEnd) + 1);
+      const periodExpected = weeklyRate * periodDays / 7;
+      const spentInPeriod = Math.max(0, netCatAmount(catId, cat.type,
+        state.transactions.filter(t => t.date >= periodStart && t.date <= today)));
+      const remaining = Math.max(0, periodExpected - spentInPeriod);
+      push({plan: {description: spreadPlan.description, categoryId: catId, type: cat.type}}, remaining, true);
     }
   }
-  remaining.sort((a, b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
-
-  // Merge rows for the same charge landing on the same day — happens when
-  // several past weekly estimates roll forward to "today" — so the list shows
-  // one combined line instead of apparent duplicates.
-  const merged = [];
-  const byKey = {};
-  for (const r of remaining) {
-    const key = r.item.categoryId + '|' + r.item.description + '|' + r.due;
-    if (byKey[key]) byKey[key].item.amount += r.item.amount;
-    else { byKey[key] = r; merged.push(r); }
-  }
-  return merged;
+  items.sort((a, b) => a.due.localeCompare(b.due) || (a.item.type === 'income' ? -1 : 1));
+  return items;
 }
 
 // Renders the list of existing plans for the currently selected category
@@ -1741,33 +1737,29 @@ function renderDashboardCashflow() {
   const el = document.getElementById('dash-cashflow');
   if (!el) return;
   const today = new Date().toISOString().slice(0, 10);
+  const monthStart = today.slice(0, 8) + '01';
   const monthEnd = endOfMonthStr(today);
 
-  // Look far enough ahead to find the next payday even past month-end.
-  // "Next payday" = the next SALARY strictly after today (benefits, extra
-  // income, etc. don't count as payday). Identified by the income plan's
-  // category living under a "Salary" category. Falls back to any income if
-  // there are no salary plans.
-  const lookahead = expectedOccurrences(addDays(today, 60));
-  const isSalary = o => {
-    const cat = getCat(o.item.categoryId); const par = cat ? getParent(cat) : null;
-    return par && par.name.toLowerCase() === 'salary';
-  };
-  const futureIncome = lookahead.filter(o => o.item.type === 'income' && o.due > today);
-  const nextPayday = (futureIncome.find(isSalary) || futureIncome[0])?.due || null;
+  // Salary paydays define the current pay period. "Next payday" = next SALARY
+  // strictly after today; benefits/extra income don't count. Fall back to any
+  // income if there are no salary plans.
+  const active = (state.recurringItems || []).filter(p => p.active);
+  const salPlans = active.filter(p => p.type === 'income' && isSalaryCat(p.categoryId));
+  const incPlans = active.filter(p => p.type === 'income');
+  const tomorrow = addDays(today, 1);
+  const earliestNext = (list) => list.map(p => nextOccOnOrAfter(p, tomorrow)).filter(Boolean).sort()[0] || null;
+  const latestPrev   = (list) => list.map(p => lastOccOnOrBefore(p, today)).filter(Boolean).sort().pop() || null;
 
-  const horizon = nextPayday && nextPayday > monthEnd ? nextPayday : monthEnd;
-  const occurrences = lookahead.filter(o => o.due <= horizon);
+  const nextPayday = earliestNext(salPlans) || earliestNext(incPlans);
+  const lastPayday = latestPrev(salPlans) || latestPrev(incPlans) || monthStart;
 
-  // Running balance threaded through occurrences in date order
+  // Window 1 — until next payday: pay period is [lastPayday → day before nextPayday].
+  const paydayEnd = nextPayday ? addDays(nextPayday, -1) : monthEnd;
+  const untilPayday = nextPayday ? windowForecast(lastPayday, paydayEnd) : [];
+  // Window 2 — until end of month: period is the whole month.
+  const untilMonthEnd = windowForecast(monthStart, monthEnd);
+
   const startBal = currentBalance();
-  let running = startBal;
-  occurrences.forEach(o => {
-    if (running !== null) {
-      running += o.item.type === 'income' ? o.item.amount : -o.item.amount;
-      o.bal = running;
-    }
-  });
 
   // Header balance display
   const balEl = document.getElementById('dash-balance');
@@ -1775,9 +1767,6 @@ function renderDashboardCashflow() {
     balEl.textContent = startBal !== null ? (startBal < 0 ? '-' : '') + fmt(startBal) : '';
     balEl.style.color = startBal !== null && startBal < 0 ? 'var(--red)' : 'var(--green)';
   }
-
-  const untilPayday = nextPayday ? occurrences.filter(o => o.due <= nextPayday) : [];
-  const untilMonthEnd = occurrences.filter(o => o.due <= monthEnd);
 
   // Collapse repeated items (same description) into one detail row with a count
   const groupRows = (list) => {
