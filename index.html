@@ -458,15 +458,15 @@
 <!-- Budget Modal -->
 <div class="modal-overlay" id="modal-budget">
   <div class="modal">
-    <h2 id="modal-budget-title">New Budget Account</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">A budget account is a line item inside a category (e.g. "Groceries" inside Food &amp; Dining), with its own monthly amount.</p>
+    <h2 id="modal-budget-title">New Budget Line</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">A budget line is an item inside a category (e.g. "Groceries" inside Food &amp; Dining), with its own monthly amount.</p>
     <div class="form-grid">
       <div class="form-group full">
         <label>Category</label>
         <select id="budget-cat"></select>
       </div>
       <div class="form-group full">
-        <label>Budget account name</label>
+        <label>Budget line name</label>
         <input type="text" id="budget-acct-name" placeholder="e.g. Groceries, Mortgage, Netflix">
       </div>
       <div class="form-group full">
@@ -521,16 +521,16 @@
     <h2>Add Category</h2>
     <div class="form-grid">
       <div class="form-group full">
-        <label>Name</label>
-        <input type="text" id="cat-name" placeholder="e.g. Groceries">
+        <label>Category name</label>
+        <input type="text" id="cat-name" placeholder="e.g. Housing, Food & Dining, Transport">
       </div>
       <div class="form-group full">
-        <label>Type</label>
+        <label>Main category</label>
         <select id="cat-type" onchange="refreshParentSelect()">
-          <option value="expense">Expense</option>
-          <option value="income">Income</option>
+          <option value="expense">Expenses</option>
           <option value="savings">Savings</option>
-          <option value="investment">Investment</option>
+          <option value="investment">Investments</option>
+          <option value="income">Income</option>
         </select>
       </div>
       <!-- Categories are top-level containers; budget accounts (sub-categories)
@@ -2451,8 +2451,6 @@ function renderBudgets() {
   const invGroups = buildGroups('investment');
   const allGroups = [...expGroups, ...incGroups, ...savGroups, ...invGroups];
 
-  if (!allGroups.length) { listEl.innerHTML = '<div class="card"><div class="empty">No budgets set. Click "+ Set Budget" to add one.</div></div>'; return; }
-
   function renderGroup({p, spent, limit, subs, type}) {
     const isIncome = type === 'income';
     const remaining = limit ? limit - spent : null;
@@ -2485,36 +2483,31 @@ function renderBudgets() {
       </div>`;
     }).join('');
 
-    // "Add budget account" tile at the end of each category's circles.
-    const addTile = `<div class="budget-circle-item" onclick="openBudgetModal(null,'${p.id}')" title="Add a budget account to ${p.name}" style="cursor:pointer">
-      <div class="budget-ring-wrap" style="display:flex;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:50%;color:var(--muted)">
-        <span style="font-size:26px;line-height:1">+</span>
-      </div>
-      <div class="budget-circle-name" style="color:var(--muted)">Add account</div>
-    </div>`;
-
     return `<div class="budget-group">
       <div class="budget-group-header">
         <span class="budget-group-title" style="color:${p.color};cursor:pointer" onclick="openCatModal('${p.id}')" title="Edit category">${p.name}</span>
-        <span class="budget-group-totals">${subs.length ? fmt(spent) + (limit ? ' / ' + fmt(limit) : '') + ' &nbsp;·&nbsp; ' + totalLabel : '<span style="color:var(--muted)">no accounts yet</span>'}</span>
+        <span class="budget-group-totals">${subs.length ? fmt(spent) + (limit ? ' / ' + fmt(limit) : '') + ' &nbsp;·&nbsp; ' + totalLabel : '<span style="color:var(--muted)">no budget lines yet</span>'}</span>
       </div>
-      <div class="budget-circles">${circles}${addTile}</div>
+      <div class="budget-circles">${circles}</div>
     </div>`;
   }
 
+  // The four main categories are always shown, even when empty.
   function sectionHtml(title, groups) {
-    if (!groups.length) return '';
+    const body = groups.length
+      ? groups.map(renderGroup).join('')
+      : '<div class="empty" style="padding:20px 0;font-size:13px">No categories yet — use "+ Add Category".</div>';
     return `<div class="card" style="margin-bottom:18px">
       <h3 style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:20px">${title}</h3>
-      ${groups.map(renderGroup).join('')}
+      ${body}
     </div>`;
   }
 
   listEl.innerHTML =
     sectionHtml('Expenses', expGroups) +
-    sectionHtml('Income', incGroups) +
     sectionHtml('Savings', savGroups) +
-    sectionHtml('Investments', invGroups);
+    sectionHtml('Investments', invGroups) +
+    sectionHtml('Income', incGroups);
 
   // ── Dashboard Budget vs Actual ── show every category with spending or a budget
   const chartItems = allGroups.filter(x=>x.limit>0 || x.spent>0);
@@ -2620,7 +2613,7 @@ function openBudgetModal(preselectSub, preselectParent) {
       `<option value="${p.id}"${p.id===parentIdSel?' selected':''}>${p.name}</option>`).join('')}</optgroup>`;
   }).join('');
 
-  document.getElementById('modal-budget-title').textContent = editSub ? 'Edit Budget Account' : 'New Budget Account';
+  document.getElementById('modal-budget-title').textContent = editSub ? 'Edit Budget Line' : 'New Budget Line';
   document.getElementById('budget-acct-name').value = editSub ? editSub.name : '';
   document.getElementById('budget-amount').value = editSub ? (state.budgets[preselectSub] || '') : '';
   document.getElementById('modal-budget').classList.add('open');
