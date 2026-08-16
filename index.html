@@ -475,6 +475,7 @@
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-danger" id="budget-delete-btn" onclick="deleteBudgetLine()" style="margin-right:auto;display:none">Delete</button>
       <button class="btn btn-outline" onclick="closeModal('modal-budget')">Cancel</button>
       <button class="btn btn-primary" onclick="saveBudget()">Save</button>
     </div>
@@ -2431,7 +2432,8 @@ function renderBudgets() {
   const listEl = document.getElementById('budget-list');
 
   function buildGroups(type) {
-    return parentCats(type).map(p => {
+    // "Unknown" is a catch-all used only in Transactions; never on the budget page.
+    return parentCats(type).filter(p => p.name !== 'Unknown').map(p => {
       const subs = subCats(p.id).map(s => ({
         s,
         spent: netCatAmount(s.id, type, txns),
@@ -2604,10 +2606,10 @@ function openBudgetModal(preselectSub, preselectParent) {
   const editSub = preselectSub ? getCat(preselectSub) : null;
   const parentIdSel = editSub ? editSub.parentId : preselectParent;
 
-  // Category dropdown = all top-level categories, grouped by type.
+  // Category dropdown = all top-level categories (except the Unknown catch-all), grouped by type.
   const catSel = document.getElementById('budget-cat');
   catSel.innerHTML = TYPE_ORDER.map(t => {
-    const parents = parentCats(t);
+    const parents = parentCats(t).filter(p => p.name !== 'Unknown');
     if (!parents.length) return '';
     return `<optgroup label="${TYPE_META[t].label}">${parents.map(p =>
       `<option value="${p.id}"${p.id===parentIdSel?' selected':''}>${p.name}</option>`).join('')}</optgroup>`;
@@ -2616,6 +2618,7 @@ function openBudgetModal(preselectSub, preselectParent) {
   document.getElementById('modal-budget-title').textContent = editSub ? 'Edit Budget Line' : 'New Budget Line';
   document.getElementById('budget-acct-name').value = editSub ? editSub.name : '';
   document.getElementById('budget-amount').value = editSub ? (state.budgets[preselectSub] || '') : '';
+  document.getElementById('budget-delete-btn').style.display = editSub ? 'block' : 'none';
   document.getElementById('modal-budget').classList.add('open');
 }
 
@@ -2650,6 +2653,21 @@ function saveBudget() {
     state.categories.push({id, name, type: parent.type, color: parent.color, parentId});
     state.budgets[id] = amt;
   }
+  editingBudgetSubId = null;
+  save(); closeModal('modal-budget'); renderAll();
+}
+
+function deleteBudgetLine() {
+  if (!editingBudgetSubId) return;
+  const line = getCat(editingBudgetSubId);
+  const txnCount = state.transactions.filter(t => t.categoryId === editingBudgetSubId).length;
+  let msg = `Delete budget line "${line.name}"?`;
+  if (txnCount) msg += `\n\n${txnCount} transaction${txnCount===1?'':'s'} use it — they'll be moved to Unknown.`;
+  if (!confirm(msg)) return;
+  const unknownId = state.categories.find(c => c.name === 'Unknown')?.id;
+  state.transactions.forEach(t => { if (t.categoryId === editingBudgetSubId && unknownId) { t.categoryId = unknownId; t.type = 'expense'; } });
+  state.categories = state.categories.filter(c => c.id !== editingBudgetSubId);
+  delete state.budgets[editingBudgetSubId];
   editingBudgetSubId = null;
   save(); closeModal('modal-budget'); renderAll();
 }
