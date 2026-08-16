@@ -2084,12 +2084,15 @@ function renderDashboard() {
     const d = new Date(y, m-1-i);
     months.push(d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'));
   }
+  const sumType = (mo, type) => getMonthTxns(mo).filter(t=>t.type===type).reduce((s,t)=>s+t.amount,0);
   if (chartBar) chartBar.destroy();
   chartBar = new Chart(document.getElementById('chart-bar'), {
     type:'bar',
     data:{labels:months.map(m=>m.slice(5)), datasets:[
-      {label:'Income',   data:months.map(mo=>getMonthTxns(mo).filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0)),  backgroundColor:'#22c55e88', borderColor:'#22c55e', borderWidth:1},
-      {label:'Expenses', data:months.map(mo=>getMonthTxns(mo).filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0)), backgroundColor:'#dc262688', borderColor:'#dc2626', borderWidth:1},
+      {label:'Income',      data:months.map(mo=>sumType(mo,'income')),     backgroundColor:'#22c55e88', borderColor:'#22c55e', borderWidth:1},
+      {label:'Expenses',    data:months.map(mo=>sumType(mo,'expense')),    backgroundColor:'#dc262688', borderColor:'#dc2626', borderWidth:1},
+      {label:'Savings',     data:months.map(mo=>sumType(mo,'savings')),    backgroundColor:'#0ea5e988', borderColor:'#0ea5e9', borderWidth:1},
+      {label:'Investments', data:months.map(mo=>sumType(mo,'investment')), backgroundColor:'#7c5fe688', borderColor:'#7c5fe6', borderWidth:1},
     ]},
     options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#6b7280'}}}, scales:{x:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}},y:{ticks:{color:'#6b7280'},grid:{color:'#dde1ee'}}}}
   });
