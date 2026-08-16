@@ -217,7 +217,6 @@
     <button class="active" onclick="showPage('dashboard', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg> Dashboard</button>
     <button onclick="showPage('transactions', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M3 6h18M3 18h18"/><path d="M17 8l4-4-4-4M17 24l4-4-4-4" transform="translate(0,-6)"/></svg> Transactions</button>
     <button onclick="showPage('budgets', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg> Budgets</button>
-    <button onclick="showPage('categories', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><circle cx="7" cy="7" r="1.5" fill="currentColor"/></svg> Categories</button>
     <button onclick="showPage('import', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import CSV</button>
     <button onclick="showPage('rules', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg> Auto-categorize</button>
     <div class="nav-spacer"></div>
@@ -324,7 +323,10 @@
     <div id="page-budgets" class="page">
       <div class="section-header">
         <h2>Monthly Budgets</h2>
-        <button class="btn btn-primary" onclick="openBudgetModal()">+ Set Budget</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline" onclick="openCatModal()">+ Add Category</button>
+          <button class="btn btn-primary" onclick="openBudgetModal()">+ Set Budget</button>
+        </div>
       </div>
       <div class="card" id="budget-list"></div>
     </div>
@@ -395,9 +397,9 @@
         </div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">When you change a transaction's category, the app suggests a merchant keyword to remember (you confirm or edit it). Any future transaction whose description contains that keyword is auto-categorized. You can also add keyword rules manually below.</p>
+        <p style="color:var(--muted); font-size:13px; margin-bottom:12px;">Rules auto-assign a category to any transaction whose description contains the keyword (matched as a whole word). Add an amount condition to route the same merchant to different categories by amount. Create a rule from a transaction with its "+ Rule" button, or add one here.</p>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-          <span style="font-size:13px; color:var(--muted)">Learned rules:</span>
+          <span style="font-size:13px; color:var(--muted)">Rules:</span>
           <span id="rules-count" style="font-weight:700"></span>
           <button class="btn btn-outline btn-sm" onclick="cleanupRules()" style="margin-left:auto">Clean up</button>
           <button class="btn btn-outline btn-sm" onclick="clearLearnedRules()" style="border-color:var(--red); color:var(--red)">Clear all</button>
@@ -405,10 +407,10 @@
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Type</th><th>Pattern</th><th>Category</th><th></th></tr></thead>
+          <thead><tr><th>Type</th><th>Keyword</th><th>Amount</th><th>Category</th><th></th></tr></thead>
           <tbody id="rules-tbody"></tbody>
         </table>
-        <div id="rules-empty" class="empty" style="display:none">No learned rules yet.</div>
+        <div id="rules-empty" class="empty" style="display:none">No rules yet.</div>
       </div>
     </div>
   </main>
@@ -477,12 +479,24 @@
 <!-- Add Rule Modal -->
 <div class="modal-overlay" id="modal-rule">
   <div class="modal">
-    <h2>Add Keyword Rule</h2>
-    <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">Any transaction whose description contains this keyword will be auto-assigned to the selected category.</p>
+    <h2 id="modal-rule-title">Add Keyword Rule</h2>
+    <p style="color:var(--muted); font-size:13px; margin-bottom:16px;">A transaction whose description contains this keyword (whole word) is auto-assigned to the category. Add an amount condition to route the same merchant to different categories by amount.</p>
     <div class="form-grid">
       <div class="form-group full">
-        <label>Keyword (case-insensitive)</label>
+        <label>Keyword (case-insensitive, whole word)</label>
         <input type="text" id="rule-keyword" placeholder="e.g. Starbucks">
+      </div>
+      <div class="form-group">
+        <label>Amount condition</label>
+        <select id="rule-amt-op" onchange="onRuleAmtOpChange()">
+          <option value="none">Any amount</option>
+          <option value="max">Up to (max)</option>
+          <option value="exact">Exactly</option>
+        </select>
+      </div>
+      <div class="form-group" id="rule-amt-val-group" style="display:none">
+        <label>Amount ($)</label>
+        <input type="number" id="rule-amt-val" placeholder="0.00" step="0.01" min="0">
       </div>
       <div class="form-group full">
         <label>Assign to Category</label>
@@ -758,6 +772,8 @@ const DEFAULT_CATEGORIES = [
   {id:'c37', name:'Canada Child Benefit',  type:'income', color:'#34d399', parentId:'p16'},
   {id:'c38', name:'Quebec Child Benefit',  type:'income', color:'#34d399', parentId:'p16'},
   {id:'c39', name:'Daycare (Gov.)',         type:'income', color:'#34d399', parentId:'p16'},
+  // Unknown — default landing spot for transactions the app can't categorize
+  {id:'p17', name:'Unknown',            type:'expense', color:'#94a3b8', parentId:null},
 ];
 
 // Budgets set at parent level
@@ -840,7 +856,21 @@ function _applyDefaults() {
   // Migrate budgets: if budgets use old 'c' keys, reset to defaults
   const hasPBudgets = Object.keys(state.budgets).some(k => k.startsWith('p'));
   if (!Object.keys(state.budgets).length || !hasPBudgets) state.budgets = {...DEFAULT_BUDGETS};
-  if (!state.rules) state.rules = {};
+  // Ensure an "Unknown" top-level category exists (default for uncategorizable txns)
+  if (!state.categories.find(c => c.name === 'Unknown' && !c.parentId)) {
+    state.categories.push({id: 'p17', name: 'Unknown', type: 'expense', color: '#94a3b8', parentId: null});
+  }
+  // Migrate rules: old shape was { pattern: categoryId }. New shape is an array
+  // of rule objects supporting whole-keyword matching and amount conditions.
+  if (!state.rules) state.rules = [];
+  if (!Array.isArray(state.rules)) {
+    const arr = [];
+    for (const [k, cat] of Object.entries(state.rules)) {
+      const isKw = k.startsWith('kw:');
+      arr.push({id: uid(), kw: isKw ? k.slice(3) : k, exact: !isKw, cat, amtOp: null, amtVal: null});
+    }
+    state.rules = arr;
+  }
   if (!state.recurringItems) state.recurringItems = [];
   // Cleanup: an earlier cashflow version auto-created transactions on due
   // dates. The forecast is non-posting now — purge those phantom entries
@@ -1018,7 +1048,7 @@ async function scanImportFolder(silent) {
         existing.add(key);
         state.transactions.push({
           id: uid(), amount: r.amount, date: r.date, description: r.description,
-          categoryId: autoCategorize(r.description, r.type), notes: '', type: r.type
+          categoryId: autoCategorize(r.description, r.type, r.amount), notes: '', type: r.type
         });
         imported++;
       }
@@ -1238,30 +1268,53 @@ const KEYWORD_MAP = [
 
 function normDesc(d) { return d.toLowerCase().trim(); }
 
-function autoCategorize(description, type) {
+// Whole-keyword match: the keyword (which may be a multi-word phrase like
+// "ford credit") must appear as whole words, contiguously — not as a fragment
+// inside a larger word ("gas" won't match "Vegas") and not split apart.
+function keywordMatches(normalizedDesc, kw) {
+  const k = kw.trim().toLowerCase();
+  if (!k) return false;
+  const re = new RegExp('(^|[^a-zà-ÿ0-9])' + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '($|[^a-zà-ÿ0-9])');
+  return re.test(normalizedDesc);
+}
+
+// Does a user rule's amount condition hold for this transaction amount?
+function amountMatches(rule, amount) {
+  if (!rule.amtOp) return true;
+  if (amount == null) return false;
+  if (rule.amtOp === 'max')   return amount <= rule.amtVal + 0.005;
+  if (rule.amtOp === 'exact') return Math.abs(amount - rule.amtVal) < 0.005;
+  return true;
+}
+
+function autoCategorize(description, type, amount) {
   const nd = normDesc(description);
-  // 1. Exact learned rule
-  if (state.rules[nd]) return state.rules[nd];
-  // 2. Keyword learned rules
-  for (const [p, catId] of Object.entries(state.rules))
-    if (p.startsWith('kw:') && nd.includes(p.slice(3))) return catId;
-  // 3. Built-in keyword map — match to sub-category name first
+  // 1. User rules. Amount-conditioned rules are checked first (more specific),
+  //    then within each group the first keyword/exact match wins.
+  const rules = (state.rules || []).slice().sort((a, b) => (b.amtOp?1:0) - (a.amtOp?1:0));
+  for (const r of rules) {
+    const kwHit = r.exact ? nd === r.kw : keywordMatches(nd, r.kw);
+    if (kwHit && amountMatches(r, amount)) return r.cat;
+  }
+  // 2. Built-in keyword map — match to sub-category name first
   for (const {kw, cat} of KEYWORD_MAP) {
-    if (nd.includes(kw.toLowerCase())) {
+    if (keywordMatches(nd, kw.toLowerCase())) {
       const found = state.categories.find(c => c.name === cat && c.type === type)
                  || state.categories.find(c => c.name === cat);
       if (found) return found.id;
     }
   }
-  // 4. Fallback: Miscellaneous parent, or first category of matching type
-  return state.categories.find(c => c.name === 'Miscellaneous' && c.type === type)?.id
-      || state.categories.find(c => c.name === 'Miscellaneous')?.id
+  // 3. Fallback: the "Unknown" category
+  return state.categories.find(c => c.name === 'Unknown')?.id
       || state.categories.find(c => c.type === type)?.id
       || state.categories[0]?.id;
 }
 
-function learnRule(description, categoryId) {
-  state.rules[normDesc(description)] = categoryId; save();
+// Add a keyword rule (optionally amount-conditioned) to the rules list.
+function addKeywordRule(kw, categoryId, amtOp, amtVal) {
+  state.rules.push({id: uid(), kw: kw.trim().toLowerCase(), exact: false, cat: categoryId,
+    amtOp: amtOp || null, amtVal: (amtOp ? amtVal : null)});
+  save();
 }
 
 // Boilerplate the bank wraps around the real merchant name (EN + FR / Quebec).
@@ -1293,23 +1346,20 @@ function extractKeyword(description) {
   return tokens.slice(0, 2).join(' ');
 }
 
-// Called when the user corrects a transaction's category. Proposes the
-// extracted keyword and lets them confirm/edit/skip, so learned rules are
-// real merchant keywords rather than dead full-description strings.
-function learnFromCorrection(description, categoryId) {
-  const guess = extractKeyword(description);
-  if (!guess) return; // nothing learnable — don't nag
-  const cat = getCat(categoryId);
-  const input = window.prompt(
-    `Auto-categorize future transactions containing this keyword as "${catDisplayName(cat)}"?\n\n` +
-    `Edit the keyword if needed, or press Cancel to skip.`,
-    guess
-  );
-  if (input === null) return;                 // Cancel → skip
-  const kw = input.trim().toLowerCase();
-  if (kw.length < 3) return;                  // too short/blank → skip
-  state.rules['kw:' + kw] = categoryId;
-  save();
+// Opened by the "teach" button on a transaction row — pre-fills the rule
+// modal with the extracted keyword, the transaction's category, and its amount
+// (so the user can add a max/exact condition). Nothing is saved until they
+// press Save, so learning is explicit and never nags on every edit.
+function openRuleFromTxn(txnId) {
+  const t = state.transactions.find(x => x.id === txnId); if (!t) return;
+  editingRuleId = null;
+  document.getElementById('modal-rule-title').textContent = 'Add Auto-categorize Rule';
+  document.getElementById('rule-keyword').value = extractKeyword(t.description) || '';
+  document.getElementById('rule-amt-op').value = 'none';
+  document.getElementById('rule-amt-val').value = t.amount ? t.amount.toFixed(2) : '';
+  onRuleAmtOpChange();
+  populateRuleCatSelect(t.categoryId);
+  document.getElementById('modal-rule').classList.add('open');
 }
 
 // ===== UTILS =====
@@ -2133,7 +2183,10 @@ function renderTransactions() {
         ${t.type==='income'?'+':'−'}${fmt(t.amount)}
       </td>
       <td style="text-align:right;font-weight:600;color:${balMap[t.id]!==undefined && balMap[t.id]<0 ? 'var(--red)' : 'var(--muted)'}">${balMap[t.id]!==undefined ? (balMap[t.id]<0?'-':'')+fmt(balMap[t.id]) : '—'}</td>
-      <td><button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button></td>
+      <td style="display:flex;gap:6px;white-space:nowrap">
+        <button class="btn btn-sm btn-outline" onclick="openRuleFromTxn('${t.id}')" title="Create an auto-categorize rule from this transaction">+ Rule</button>
+        <button class="btn btn-danger" onclick="deleteTransaction('${t.id}')">Delete</button>
+      </td>
     </tr>`;
   }).join('');
   // Set selected category for each row after render
@@ -2227,7 +2280,6 @@ function inlineUpdateCat(id, catId) {
   const t = state.transactions.find(x=>x.id===id); if (!t) return;
   t.categoryId = catId;
   save();
-  learnFromCorrection(t.description, catId);
   // Rebuild the badge with new category
   const cat = getCat(catId); const par = getParent(cat);
   const badge = document.getElementById(`catbadge-${id}`);
@@ -2250,7 +2302,7 @@ function inlineToggleType(id) {
   const t = state.transactions.find(x=>x.id===id); if (!t) return;
   const next = TYPE_ORDER[(TYPE_ORDER.indexOf(t.type) + 1) % TYPE_ORDER.length];
   t.type = next;
-  t.categoryId = autoCategorize(t.description, t.type);
+  t.categoryId = autoCategorize(t.description, t.type, t.amount);
   save(); renderTransactions(); renderDashboard();
 }
 
@@ -2306,16 +2358,13 @@ function saveTransaction() {
   const categoryId = document.getElementById('txn-cat').value;
   const notes = document.getElementById('txn-notes').value.trim();
   if (!amount || !date || !description || !categoryId) { alert('Please fill all required fields.'); return; }
-  let didCorrect = false;
   if (editingTxnId) {
     const t = state.transactions.find(x=>x.id===editingTxnId);
-    didCorrect = t.categoryId !== categoryId;
     Object.assign(t, {amount, date, description, categoryId, notes, type:currentTxnType});
   } else {
     state.transactions.push({id:uid(), amount, date, description, categoryId, notes, type:currentTxnType});
   }
   save(); closeModal('modal-txn'); renderAll();
-  if (didCorrect) learnFromCorrection(description, categoryId);
 }
 
 // ===== BUDGETS =====
@@ -2753,7 +2802,7 @@ function importCSV() {
     const key = txnDupeKey(date, Math.abs(amt), desc);
     if (existing.has(key)) { duplicates++; continue; }
     existing.add(key);
-    state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type), notes:'', type});
+    state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type,Math.abs(amt)), notes:'', type});
     imported++;
   }
   save(); renderAll(); cancelCSV();
@@ -2775,106 +2824,134 @@ function cancelCSV() {
 }
 
 // ===== RULES PAGE =====
+let editingRuleId = null;
+
 function renderRules() {
-  const rules = Object.entries(state.rules);
+  const rules = state.rules || [];
   document.getElementById('rules-count').textContent = rules.length;
   const tbody = document.getElementById('rules-tbody');
   const empty = document.getElementById('rules-empty');
   if (!rules.length) { tbody.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
-  tbody.innerHTML = rules.map(([p, catId]) => {
-    const isKw=p.startsWith('kw:'), label=isKw?p.slice(3):p, cat=getCat(catId);
-    const par=getParent(cat);
-    const pJson = JSON.stringify(p).replace(/"/g,'&quot;');
+  tbody.innerHTML = rules.map(r => {
+    const cat=getCat(r.cat); const par=getParent(cat);
+    const amtLabel = r.amtOp === 'max' ? '≤ ' + fmt(r.amtVal)
+                   : r.amtOp === 'exact' ? '= ' + fmt(r.amtVal) : '—';
     const catOpts = state.categories.map(c =>
-      `<option value="${c.id}"${c.id===catId?' selected':''}>${catDisplayName(c)} (${c.type})</option>`).join('');
+      `<option value="${c.id}"${c.id===r.cat?' selected':''}>${catDisplayName(c)} (${c.type})</option>`).join('');
     return `<tr>
-      <td><span class="badge" style="background:${isKw?'#6152d022':'#f0f2f8'};color:${isKw?'#7c6af7':'#6b7280'};font-size:11px">${isKw?'keyword':'exact'}</span></td>
-      <td><input value="${label.replace(/"/g,'&quot;')}" onchange="updateRulePattern(${pJson}, ${isKw}, this.value)" style="font-family:monospace;font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
-      <td><select onchange="updateRuleCat(${pJson}, this.value)" style="font-size:13px;padding:5px 8px;max-width:220px">${catOpts}</select></td>
-      <td><button class="btn btn-danger" onclick="deleteRule(${pJson})">Delete</button></td>
+      <td><span class="badge" style="background:${r.exact?'#f0f2f8':'#6152d022'};color:${r.exact?'#6b7280':'#7c6af7'};font-size:11px">${r.exact?'exact':'keyword'}</span></td>
+      <td><input value="${(r.kw||'').replace(/"/g,'&quot;')}" onchange="updateRuleKw('${r.id}', this.value)" style="font-family:monospace;font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
+      <td style="font-size:13px;color:var(--muted);white-space:nowrap">${amtLabel}</td>
+      <td><select onchange="updateRuleCat('${r.id}', this.value)" style="font-size:13px;padding:5px 8px;max-width:200px">${catOpts}</select></td>
+      <td style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="editRule('${r.id}')">Edit</button><button class="btn btn-danger" onclick="deleteRule('${r.id}')">Delete</button></td>
     </tr>`;
   }).join('');
 }
 
-function updateRulePattern(oldKey, isKw, newVal) {
-  const v = newVal.trim().toLowerCase();
-  const minLen = isKw ? 3 : 1;
-  if (!v || v.length < minLen) { renderRules(); return; }  // invalid → revert
-  const catId = state.rules[oldKey];
-  const newKey = (isKw ? 'kw:' : '') + v;
-  if (newKey !== oldKey) {
-    delete state.rules[oldKey];
-    state.rules[newKey] = catId;
-  }
-  save(); renderRules();
+function updateRuleKw(id, val) {
+  const r = state.rules.find(x => x.id === id); if (!r) return;
+  const v = val.trim().toLowerCase();
+  if (!v || (!r.exact && v.length < 3)) { renderRules(); return; }
+  r.kw = v; save(); renderRules();
 }
 
-function updateRuleCat(key, newCatId) {
-  if (state.rules[key] !== undefined) { state.rules[key] = newCatId; save(); renderRules(); }
+function updateRuleCat(id, catId) {
+  const r = state.rules.find(x => x.id === id); if (!r) return;
+  r.cat = catId; save(); renderRules();
 }
 
-function deleteRule(p) { delete state.rules[p]; save(); renderRules(); }
+function deleteRule(id) { state.rules = state.rules.filter(r => r.id !== id); save(); renderRules(); }
+
 function clearLearnedRules() {
-  if (!confirm('Delete all learned rules?')) return;
-  state.rules={}; save(); renderRules();
+  if (!confirm('Delete all auto-categorize rules?')) return;
+  state.rules = []; save(); renderRules();
 }
 
-// Convert legacy full-description "exact" rules into keyword rules using the
-// same merchant extractor. Drops ones with no usable keyword, dedupes to a
-// single rule per keyword (most-frequent category wins), and leaves existing
-// keyword rules untouched.
+// Convert legacy "exact" (full-description) rules into keyword rules via the
+// merchant extractor. Drops ones with no usable keyword, dedupes per keyword.
 function cleanupRules() {
-  const exact = Object.entries(state.rules).filter(([k]) => !k.startsWith('kw:'));
-  if (!exact.length) { alert('Nothing to clean up — all rules are already keyword rules.'); return; }
-
-  const byKw = {};   // 'kw:foo' -> { catId: count }
+  const exactRules = state.rules.filter(r => r.exact);
+  if (!exactRules.length) { alert('Nothing to clean up — all rules are already keyword rules.'); return; }
+  const existingKw = new Set(state.rules.filter(r => !r.exact && !r.amtOp).map(r => r.kw));
+  const byKw = {};
   let dropped = 0;
-  for (const [desc, catId] of exact) {
-    const kw = extractKeyword(desc);
+  for (const r of exactRules) {
+    const kw = extractKeyword(r.kw);
     if (!kw || kw.length < 3) { dropped++; continue; }
-    const key = 'kw:' + kw;
-    (byKw[key] = byKw[key] || {});
-    byKw[key][catId] = (byKw[key][catId] || 0) + 1;
+    (byKw[kw] = byKw[kw] || {})[r.cat] = (byKw[kw][r.cat] || 0) + 1;
   }
-  const newCount = Object.keys(byKw).filter(k => !state.rules[k]).length;
-
+  const newCount = Object.keys(byKw).filter(k => !existingKw.has(k)).length;
   if (!confirm(
-    `Clean up ${exact.length} old exact rule${exact.length===1?'':'s'}?\n\n` +
+    `Clean up ${exactRules.length} old exact rule${exactRules.length===1?'':'s'}?\n\n` +
     `• ${newCount} will become keyword rule${newCount===1?'':'s'}\n` +
     `• ${dropped} with no usable keyword will be removed\n` +
     `• Existing keyword rules are kept`
   )) return;
-
-  for (const [k] of exact) delete state.rules[k];
-  for (const [key, cats] of Object.entries(byKw)) {
-    if (state.rules[key]) continue; // don't overwrite an existing keyword rule
+  state.rules = state.rules.filter(r => !r.exact);
+  for (const [kw, cats] of Object.entries(byKw)) {
+    if (existingKw.has(kw)) continue;
     const bestCat = Object.entries(cats).sort((a, b) => b[1] - a[1])[0][0];
-    state.rules[key] = bestCat;
+    state.rules.push({id: uid(), kw, exact: false, cat: bestCat, amtOp: null, amtVal: null});
   }
   save(); renderRules();
   alert('Cleanup done.');
 }
 
-function openAddRuleModal() {
-  document.getElementById('rule-keyword').value='';
-  // Flat list with parent › sub labels
+function populateRuleCatSelect(selId) {
   document.getElementById('rule-cat').innerHTML = state.categories.map(c=>
-    `<option value="${c.id}">${catDisplayName(c)} (${c.type})</option>`
+    `<option value="${c.id}"${c.id===selId?' selected':''}>${catDisplayName(c)} (${c.type})</option>`
   ).join('');
+}
+
+function onRuleAmtOpChange() {
+  const op = document.getElementById('rule-amt-op').value;
+  document.getElementById('rule-amt-val-group').style.display = op === 'none' ? 'none' : 'block';
+}
+
+function openAddRuleModal() {
+  editingRuleId = null;
+  document.getElementById('modal-rule-title').textContent = 'Add Auto-categorize Rule';
+  document.getElementById('rule-keyword').value = '';
+  document.getElementById('rule-amt-op').value = 'none';
+  document.getElementById('rule-amt-val').value = '';
+  onRuleAmtOpChange();
+  populateRuleCatSelect();
+  document.getElementById('modal-rule').classList.add('open');
+}
+
+function editRule(id) {
+  const r = state.rules.find(x => x.id === id); if (!r) return;
+  editingRuleId = id;
+  document.getElementById('modal-rule-title').textContent = 'Edit Rule';
+  document.getElementById('rule-keyword').value = r.kw;
+  document.getElementById('rule-amt-op').value = r.amtOp || 'none';
+  document.getElementById('rule-amt-val').value = r.amtVal != null ? r.amtVal : '';
+  onRuleAmtOpChange();
+  populateRuleCatSelect(r.cat);
   document.getElementById('modal-rule').classList.add('open');
 }
 
 function saveRule() {
-  const kw=document.getElementById('rule-keyword').value.trim().toLowerCase();
-  const catId=document.getElementById('rule-cat').value;
-  if (!kw){alert('Enter a keyword.');return;}
-  state.rules['kw:'+kw]=catId; save(); closeModal('modal-rule'); renderRules();
+  const kw = document.getElementById('rule-keyword').value.trim().toLowerCase();
+  const catId = document.getElementById('rule-cat').value;
+  const amtOpRaw = document.getElementById('rule-amt-op').value;
+  const amtOp = amtOpRaw === 'none' ? null : amtOpRaw;
+  const amtVal = amtOp ? parseFloat(document.getElementById('rule-amt-val').value) : null;
+  if (!kw) { alert('Enter a keyword.'); return; }
+  if (amtOp && (isNaN(amtVal) || amtVal < 0)) { alert('Enter a valid amount for the condition.'); return; }
+  if (editingRuleId) {
+    const r = state.rules.find(x => x.id === editingRuleId);
+    if (r) Object.assign(r, {kw, cat: catId, amtOp, amtVal, exact: false});
+  } else {
+    state.rules.push({id: uid(), kw, exact: false, cat: catId, amtOp, amtVal});
+  }
+  save(); closeModal('modal-rule'); renderRules();
 }
 
 function recategorizeAll() {
   if (!confirm('Re-categorize ALL transactions using current rules?')) return;
-  state.transactions.forEach(t=>{ t.categoryId=autoCategorize(t.description,t.type); });
+  state.transactions.forEach(t=>{ t.categoryId=autoCategorize(t.description,t.type,t.amount); });
   save(); renderAll(); alert('Done!');
 }
 
