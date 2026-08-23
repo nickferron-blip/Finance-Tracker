@@ -2441,9 +2441,26 @@ function budgetRingSVG(pct, color, icon, over) {
   </svg>`;
 }
 
+// Ideal share-of-income guideline per category (matched by name keyword).
+function idealShareFor(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('housing') || n.includes('mortgage') || n.includes('rent')) return '35%';
+  if (n.includes('food') || n.includes('grocer') || n.includes('dining'))    return '10-20%';
+  if (n.includes('transport') || n.includes('auto') || n.includes('car'))    return '15-20%';
+  if (n.includes('utilit'))                                                    return '5-10%';
+  if (n.includes('cloth'))                                                     return '3-5%';
+  if (n.includes('health') || n.includes('medical'))                          return '3%';
+  if (n.includes('debt') || n.includes('loan') || n.includes('loc') || n.includes('credit')) return '5-15%';
+  if (n.includes('saving'))                                                    return '5-10%';
+  if (n.includes('personal'))                                                  return '5-10%';
+  return '';  // Misc / everything else — no guideline
+}
+
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const listEl = document.getElementById('budget-list');
+  // Total income this month — denominator for the "% of income" figures.
+  const totalIncome = txns.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
 
   function buildGroups(type) {
     // "Unknown" is a catch-all used only in Transactions; never on the budget page.
@@ -2499,9 +2516,19 @@ function renderBudgets() {
       </div>`;
     }).join('');
 
+    // Share of income + ideal guideline (expenses/savings/investments only).
+    const ideal = idealShareFor(p.name);
+    const sharePct = (!isIncome && totalIncome > 0) ? Math.round((spent / totalIncome) * 100) : null;
+    const shareHtml = sharePct !== null
+      ? `<span style="font-size:17px;font-weight:700;color:${p.color};margin-left:14px">${sharePct}%${ideal ? ` <span style="color:var(--muted);font-weight:500">(${ideal})</span>` : ''}</span>`
+      : '';
+
     return `<div class="budget-group">
       <div class="budget-group-header">
-        <span class="budget-group-title" style="color:${p.color};cursor:pointer" onclick="openCatModal('${p.id}')" title="Edit category">${p.name}</span>
+        <span>
+          <span class="budget-group-title" style="color:${p.color};cursor:pointer" onclick="openCatModal('${p.id}')" title="Edit category">${p.name}</span>
+          ${shareHtml}
+        </span>
         <span class="budget-group-totals">${subs.length ? fmt(spent) + (limit ? ' / ' + fmt(limit) : '') + ' &nbsp;·&nbsp; ' + totalLabel : '<span style="color:var(--muted)">no budget lines yet</span>'}</span>
       </div>
       <div class="budget-circles">${circles}</div>
