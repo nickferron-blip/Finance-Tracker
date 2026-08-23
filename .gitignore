@@ -1,0 +1,6 @@
+# Personal data — never commit to the public repo
+finance-tracker-data*.json
+Finance Tracker Imports/
+Saved Transactions/
+*.csv
+.DS_Store
