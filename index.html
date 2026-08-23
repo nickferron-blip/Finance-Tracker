@@ -2459,8 +2459,13 @@ function idealShareFor(name) {
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const listEl = document.getElementById('budget-list');
-  // Total income this month — denominator for the "% of income" figures.
-  const totalIncome = txns.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  // Denominator for the "% of income" figures: total BUDGETED income (sum of
+  // budgets on income categories); falls back to actual income if none set.
+  const budgetedIncome = Object.entries(state.budgets).reduce((s, [id, amt]) => {
+    const c = getCat(id); return s + (c && c.type === 'income' ? amt : 0);
+  }, 0);
+  const actualIncome = txns.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
+  const incomeBase = budgetedIncome > 0 ? budgetedIncome : actualIncome;
 
   function buildGroups(type) {
     // "Unknown" is a catch-all used only in Transactions; never on the budget page.
@@ -2516,9 +2521,9 @@ function renderBudgets() {
       </div>`;
     }).join('');
 
-    // Share of income + ideal guideline (expenses/savings/investments only).
+    // Budgeted share of income + ideal guideline (expenses/savings/investments only).
     const ideal = idealShareFor(p.name);
-    const sharePct = (!isIncome && totalIncome > 0) ? Math.round((spent / totalIncome) * 100) : null;
+    const sharePct = (!isIncome && incomeBase > 0) ? Math.round(((limit || 0) / incomeBase) * 100) : null;
     const shareHtml = sharePct !== null
       ? `<span style="font-size:17px;font-weight:700;color:${p.color};margin-left:14px">${sharePct}%${ideal ? ` <span style="color:var(--muted);font-weight:500">(${ideal})</span>` : ''}</span>`
       : '';
