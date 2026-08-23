@@ -2459,13 +2459,14 @@ function idealShareFor(name) {
 function renderBudgets() {
   const txns = getMonthTxns(state.currentMonth);
   const listEl = document.getElementById('budget-list');
-  // Denominator for the "% of income" figures: total BUDGETED income (sum of
-  // budgets on income categories); falls back to actual income if none set.
-  const budgetedIncome = Object.entries(state.budgets).reduce((s, [id, amt]) => {
-    const c = getCat(id); return s + (c && c.type === 'income' ? amt : 0);
+  // Denominator for the "% of income" figures: total BUDGETED SALARY only
+  // (budgets on Salary-category lines) — benefits/extra income excluded.
+  // Falls back to actual salary received if no salary budgets are set.
+  const budgetedSalary = Object.entries(state.budgets).reduce((s, [id, amt]) => {
+    return s + (isSalaryCat(id) ? amt : 0);
   }, 0);
-  const actualIncome = txns.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0);
-  const incomeBase = budgetedIncome > 0 ? budgetedIncome : actualIncome;
+  const actualSalary = txns.filter(t => t.type === 'income' && isSalaryCat(t.categoryId)).reduce((s, t) => s + t.amount, 0);
+  const incomeBase = budgetedSalary > 0 ? budgetedSalary : actualSalary;
 
   function buildGroups(type) {
     // "Unknown" is a catch-all used only in Transactions; never on the budget page.
