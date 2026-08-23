@@ -4,7 +4,15 @@ A personal finance tracking Progressive Web App (PWA), built as a single self-co
 
 **Live app:** check GitHub Pages settings on the repo below for the URL.
 **Repo:** https://github.com/nickferron-blip/Finance-Tracker
-**Local path:** `/Users/nicolasferron/Library/CloudStorage/OneDrive-Mely.ai/Claude Main Folder/Apps/finance-tracker`
+**Local path:** `/Users/nicolasferron/Library/CloudStorage/GoogleDrive-nick.l.ferron@gmail.com/My Drive/AI Folder/FM - finance-tracker`
+(moved here from the old OneDrive `…/Claude Main Folder/Apps/finance-tracker` path; folder renamed "FM - finance-tracker")
+
+**Second instance — a separate independent copy for another person (McCaffrey):**
+- Repo: https://github.com/nickferron-blip/McCaffrey_finance — live at `https://nickferron-blip.github.io/McCaffrey_finance/`
+- Local path: `/Users/nicolasferron/Library/CloudStorage/GoogleDrive-nick.l.ferron@gmail.com/My Drive/AI Folder/McCaffrey_finance`
+- Its own Google Cloud project + Client ID (`1069064228161-i29gpc1tu0ul186ilkk5atass6up6du3...`), and a unique `FILE_NAME = 'finance-tracker-data-mccaffrey.json'` so its data never collides with the main app. When porting code changes from the main app, preserve those two lines (CLIENT_ID and FILE_NAME).
+
+**Data privacy:** both repos have a `.gitignore` excluding `finance-tracker-data*.json`, `Finance Tracker Imports/`, `Saved Transactions/`, `*.csv`, and `.DS_Store` — never commit personal data to these public repos. The live data lives in each user's Google Drive (found by filename), not in the repo.
 
 ---
 
