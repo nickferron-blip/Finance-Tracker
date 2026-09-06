@@ -624,6 +624,12 @@
           <label id="recurring-date-label">Date</label>
           <input type="date" id="recurring-start-date">
         </div>
+        <div class="form-group full">
+          <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-weight:500">
+            <input type="checkbox" id="recurring-mandatory" style="width:auto;margin-top:3px">
+            <span>Mandatory charge — if it's past due and hasn't shown up in transactions yet, keep it in the cashflow until it's actually paid.</span>
+          </label>
+        </div>
       </div>
 
       <div id="plan-spread-form" style="display:none">
@@ -892,7 +898,22 @@ function _applyDefaults() {
   state.transactions = (state.transactions || []).filter(t => t.notes !== 'Auto-posted (recurring)');
   // Ensure all categories have parentId field
   state.categories.forEach(c => { if (!('parentId' in c)) c.parentId = null; });
+  // Assign a stable import/creation sequence to any transaction missing one,
+  // preserving current array order (which mirrors the CSV import order). This
+  // makes same-day ordering — and the running-balance column — match the source
+  // CSV even after Drive sync round-trips, which don't guarantee array order.
+  let _mo = 0;
+  state.transactions.forEach(t => { if (typeof t.ord === 'number' && t.ord > _mo) _mo = t.ord; });
+  state.transactions.forEach(t => { if (typeof t.ord !== 'number') t.ord = ++_mo; });
 }
+
+// Next import/creation sequence number (monotonic across the whole dataset).
+function nextOrd() {
+  let m = 0;
+  for (const t of state.transactions) if (typeof t.ord === 'number' && t.ord > m) m = t.ord;
+  return m + 1;
+}
+const ordOf = t => (typeof t.ord === 'number' ? t.ord : 0);
 
 function _showSaved() {
   const el = document.getElementById('save-indicator');
@@ -1050,6 +1071,7 @@ async function scanImportFolder(silent) {
     if (!state.importedFileIds) state.importedFileIds = [];
     const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
     let imported = 0, duplicates = 0;
+    let ord = nextOrd(); // preserve CSV row order for same-day sequencing
 
     for (const file of files) {
       const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
@@ -1062,7 +1084,7 @@ async function scanImportFolder(silent) {
         existing.add(key);
         state.transactions.push({
           id: uid(), amount: r.amount, date: r.date, description: r.description,
-          categoryId: autoCategorize(r.description, r.type, r.amount), notes: '', type: r.type
+          categoryId: autoCategorize(r.description, r.type, r.amount), notes: '', type: r.type, ord: ord++
         });
         imported++;
       }
@@ -1597,15 +1619,21 @@ function windowForecast(periodStart, windowEnd) {
     const fixedPlans = catPlans.filter(p => p.mode !== 'spread');
     const spreadPlan = catPlans.find(p => p.mode === 'spread');
 
-    // Scheduled charges from today → windowEnd; a today-or-later charge already
-    // paid (actual spend on/after today) is consumed and dropped.
-    const fixedFuture = fixedPlans.flatMap(p => planOccurrencesInRange(p, today, windowEnd).map(o => ({...o, plan: {...o.plan, categoryId: catId}})))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    let paidFromToday = Math.max(0, netCatAmount(catId, cat.type, state.transactions.filter(t => t.date >= today && t.date <= windowEnd)));
+    // Scheduled charges. Normal plans: today → windowEnd. Mandatory plans also
+    // pull in any occurrence that was due earlier in the period (back to
+    // periodStart) but never showed up in transactions — it stays in the
+    // cashflow, shown as due now, until an actual charge consumes it.
+    const fixedFuture = fixedPlans.flatMap(p => {
+      const from = (p.mandatory && periodStart < today) ? periodStart : today;
+      return planOccurrencesInRange(p, from, windowEnd).map(o => ({...o, plan: {...o.plan, categoryId: catId}}));
+    }).sort((a, b) => a.date.localeCompare(b.date));
+    const consumeStart = fixedFuture.length && fixedFuture[0].date < today ? fixedFuture[0].date : today;
+    let paidFromToday = Math.max(0, netCatAmount(catId, cat.type, state.transactions.filter(t => t.date >= consumeStart && t.date <= windowEnd)));
     for (const o of fixedFuture) {
       const eat = Math.min(o.amount, paidFromToday);
       paidFromToday -= eat;
-      push(o, o.amount - eat, false);
+      const shownDate = o.date < today ? today : o.date; // past-due mandatory → shown as due now
+      push({...o, date: shownDate}, o.amount - eat, false);
     }
 
     // Weekly split → one stable, period-based estimate for this category.
@@ -1645,7 +1673,7 @@ function renderPlanList() {
       const rate = wk ? `${fmt(wk.perWeek)}/wk` : 'no budget set';
       label = `${rate} · ${(p.carryMode || 'carry') === 'drop' ? 'drops unused' : 'carries unused'}`;
     } else {
-      label = `${fmt(p.amount)} — ${recurringLabel(p)}`;
+      label = `${fmt(p.amount)} — ${recurringLabel(p)}${p.mandatory ? ' · <span style="color:var(--red);font-weight:600">mandatory</span>' : ''}`;
     }
     return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="min-width:0">
@@ -1961,6 +1989,7 @@ function openRecurringModalForCat(catId) {
   document.getElementById('recurring-custom-interval').value = '';
   document.getElementById('recurring-custom-unit').value = 'days';
   document.getElementById('recurring-start-date').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('recurring-mandatory').checked = false;
   document.getElementById('plan-save-btn').textContent = 'Add';
   setPlanMode('fixed');
   onRecurringFreqChange();
@@ -1980,6 +2009,7 @@ function editPlanItem(id) {
   document.getElementById('recurring-custom-interval').value = item.schedule.customInterval || '';
   document.getElementById('recurring-custom-unit').value = item.schedule.customUnit || 'days';
   document.getElementById('recurring-start-date').value = item.schedule.startDate;
+  document.getElementById('recurring-mandatory').checked = !!item.mandatory;
   document.getElementById('plan-save-btn').textContent = 'Update';
   onRecurringFreqChange();
 }
@@ -2013,16 +2043,17 @@ function saveRecurringItem() {
       schedule.customInterval = Math.max(1, parseInt(document.getElementById('recurring-custom-interval').value) || 1);
       schedule.customUnit = document.getElementById('recurring-custom-unit').value;
     }
+    const mandatory = document.getElementById('recurring-mandatory').checked;
 
     if (editingRecurringId) {
       const item = state.recurringItems.find(i => i.id === editingRecurringId);
-      if (item) Object.assign(item, {description, categoryId, amount, type: cat.type, schedule});
+      if (item) Object.assign(item, {description, categoryId, amount, type: cat.type, schedule, mandatory});
       editingRecurringId = null;
       document.getElementById('plan-save-btn').textContent = 'Add';
     } else {
       state.recurringItems.push({
         id: uid(), mode: 'fixed', description, categoryId, amount, type: cat.type,
-        schedule, active: true
+        schedule, mandatory, active: true
       });
     }
     document.getElementById('recurring-desc').value = '';
@@ -2135,11 +2166,10 @@ function renderTransactions() {
   // Chronological order + running balance per transaction (all month txns), so
   // each row shows its true balance-after even when filtered, and so the
   // display can order consistently within a date.
-  const balMap = {}, seq = {};
-  const chron = getMonthTxns(month).slice().sort((a,b)=>a.date.localeCompare(b.date));
+  const balMap = {};
+  const chron = getMonthTxns(month).slice().sort((a,b)=>a.date.localeCompare(b.date) || (ordOf(a)-ordOf(b)));
   let run = openingBal;
-  chron.forEach((t, i) => {
-    seq[t.id] = i;
+  chron.forEach((t) => {
     if (anchor) { run += (t.type==='income' ? t.amount : -t.amount); balMap[t.id] = run; }
   });
 
@@ -2150,9 +2180,10 @@ function renderTransactions() {
   if (search)     txns = txns.filter(t=>t.description.toLowerCase().includes(search));
   if (filterType) txns = txns.filter(t=>t.type===filterType);
   if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
-  // Newest first, and within the same date newest-accumulated first, so the
-  // balance column decreases monotonically down the table.
-  txns.sort((a,b)=> b.date.localeCompare(a.date) || (seq[b.id]-seq[a.id]));
+  // Newest day first, but within a day keep the exact CSV/import order (top to
+  // bottom), so the ledger mirrors the source statement. Each row still shows
+  // its true balance-after (computed in chronological order above).
+  txns.sort((a,b)=> b.date.localeCompare(a.date) || (ordOf(a)-ordOf(b)));
   visibleTxnIds = txns.map(t => t.id);
   // Drop selections no longer visible (filter/month changed)
   [...selectedTxns].forEach(id => { if (!visibleTxnIds.includes(id)) selectedTxns.delete(id); });
@@ -2386,7 +2417,7 @@ function saveTransaction() {
     const t = state.transactions.find(x=>x.id===editingTxnId);
     Object.assign(t, {amount, date, description, categoryId, notes, type:currentTxnType});
   } else {
-    state.transactions.push({id:uid(), amount, date, description, categoryId, notes, type:currentTxnType});
+    state.transactions.push({id:uid(), amount, date, description, categoryId, notes, type:currentTxnType, ord:nextOrd()});
   }
   save(); closeModal('modal-txn'); renderAll();
 }
@@ -2930,6 +2961,7 @@ function importCSV() {
   const invert = document.getElementById('csv-invert').checked;
   const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
   let imported=0, skipped=0, duplicates=0;
+  let ord = nextOrd(); // preserve CSV row order for same-day sequencing
   for (const row of csvData) {
     const desc=row[descI], dateRaw=row[dI];
     let amt=parseFloat((row[aI]||'').replace(/[^0-9.\-]/g,''));
@@ -2940,7 +2972,7 @@ function importCSV() {
     const key = txnDupeKey(date, Math.abs(amt), desc);
     if (existing.has(key)) { duplicates++; continue; }
     existing.add(key);
-    state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type,Math.abs(amt)), notes:'', type});
+    state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type,Math.abs(amt)), notes:'', type, ord:ord++});
     imported++;
   }
   save(); renderAll(); cancelCSV();
