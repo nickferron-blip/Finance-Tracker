@@ -2977,7 +2977,7 @@ function showCSVPreview() {
   const guess = k => csvHeaders.findIndex(h=>h.toLowerCase().includes(k));
   const dateI = Math.max(guess('date'), 0);
   const descI = Math.max(['desc','memo','name'].reduce((f,k)=>f>=0?f:guess(k),-1), 0);
-  const amtI  = Math.max(['amount','debit','credit'].reduce((f,k)=>f>=0?f:guess(k),-1), 0);
+  const amtI  = Math.max(['cad$','cad','amount','debit','credit'].reduce((f,k)=>f>=0?f:guess(k),-1), 0);
   document.getElementById('csv-map-fields').innerHTML = [
     {label:'Date column', id:'map-date', val:dateI},
     {label:'Description column', id:'map-desc', val:descI},
