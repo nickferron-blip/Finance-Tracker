@@ -1069,8 +1069,8 @@ async function scanImportFolder(silent) {
     if (!files.length) { if (!silent) alert('No new files found in "' + IMPORT_FOLDER_NAME + '".'); return; }
 
     if (!state.importedFileIds) state.importedFileIds = [];
-    const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
-    let imported = 0, duplicates = 0;
+    const usedIds = new Set();
+    let imported = 0, duplicates = 0, enriched = 0;
     let ord = nextOrd(); // preserve CSV row order for same-day sequencing
 
     for (const file of files) {
@@ -1079,9 +1079,9 @@ async function scanImportFolder(silent) {
       const text = await fileRes.text();
       const rows = parseAutoImportCSV(text);
       for (const r of rows) {
-        const key = txnDupeKey(r.date, r.amount, r.description);
-        if (existing.has(key)) { duplicates++; continue; }
-        existing.add(key);
+        const m = matchImportRow(r.date, r.amount, r.description, r.type, usedIds);
+        if (m.action === 'duplicate') { duplicates++; continue; }
+        if (m.action === 'enrich') { enrichTxn(m.txn, r.description, r.type, r.amount); usedIds.add(m.txn.id); enriched++; continue; }
         state.transactions.push({
           id: uid(), amount: r.amount, date: r.date, description: r.description,
           categoryId: autoCategorize(r.description, r.type, r.amount), notes: '', type: r.type, ord: ord++
@@ -1091,9 +1091,9 @@ async function scanImportFolder(silent) {
       state.importedFileIds.push(file.id);
     }
 
-    if (imported > 0) { save(); renderAll(); }
-    if (!silent || imported > 0) {
-      alert(`Auto-import: ${imported} transaction${imported===1?'':'s'} imported${duplicates?`, ${duplicates} duplicate${duplicates===1?'':'s'} skipped`:''}.`);
+    if (imported > 0 || enriched > 0) { save(); renderAll(); }
+    if (!silent || imported > 0 || enriched > 0) {
+      alert(`Auto-import: ${imported} transaction${imported===1?'':'s'} imported${enriched?`, ${enriched} updated with full details`:''}${duplicates?`, ${duplicates} duplicate${duplicates===1?'':'s'} skipped`:''}.`);
     }
   } catch(e) { console.error('Auto-import scan failed', e); }
 }
@@ -1303,6 +1303,41 @@ const KEYWORD_MAP = [
 ];
 
 function normDesc(d) { return d.toLowerCase().trim(); }
+
+// Description normalized for import matching: lowercased, whitespace collapsed.
+function _impDesc(s) { return (s || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+// A bank's not-yet-settled ("pending") description is a generic phrase with no
+// merchant detail — e.g. "Achat Interac", "Virement par Banque en direct". Once
+// settled it gains a card/reference number and merchant name. We treat a
+// description carrying no digit as generic/pending.
+function _isPendingDesc(s) { return !/\d/.test(s || ''); }
+
+// Decide how an incoming imported row relates to what's already stored, so a
+// later settled version can UPGRADE the earlier pending one instead of being
+// dropped as a duplicate or added twice. Matches on date + amount + type only.
+//   'duplicate' → identical description already present (skip)
+//   'enrich'    → a pending/generic entry whose fuller version this is (overwrite)
+//   'new'       → genuinely new
+function matchImportRow(date, absAmt, desc, type, usedIds) {
+  const nd = _impDesc(desc);
+  const same = state.transactions.filter(t =>
+    t.date === date && Math.abs(t.amount - absAmt) < 0.005 && t.type === type);
+  if (same.some(t => _impDesc(t.description) === nd)) return { action: 'duplicate' };
+  // Upgrade a pending entry when the incoming (detailed) description extends it.
+  const cand = same.find(t => !usedIds.has(t.id) && _isPendingDesc(t.description)
+    && /\d/.test(desc) && nd.startsWith(_impDesc(t.description)));
+  if (cand) return { action: 'enrich', txn: cand };
+  return { action: 'new' };
+}
+
+// Apply a settled description over a pending transaction, re-categorizing from
+// the fuller text — but never downgrade a already-meaningful category to Unknown.
+function enrichTxn(txn, desc, type, absAmt) {
+  txn.description = desc;
+  const unknownId = state.categories.find(c => c.name === 'Unknown' && !c.parentId)?.id;
+  const nc = autoCategorize(desc, type, absAmt);
+  if (!(nc === unknownId && txn.categoryId !== unknownId)) txn.categoryId = nc;
+}
 
 // Whole-keyword match: the keyword (which may be a multi-word phrase like
 // "ford credit") must appear as whole words, contiguously — not as a fragment
@@ -2952,15 +2987,11 @@ function showCSVPreview() {
   document.getElementById('csv-tbody-preview').innerHTML = csvData.slice(0,5).map(r=>'<tr>'+r.map(c=>`<td>${c}</td>`).join('')+'</tr>').join('');
 }
 
-function txnDupeKey(date, amount, description) {
-  return date + '|' + amount.toFixed(2) + '|' + description.trim().toLowerCase();
-}
-
 function importCSV() {
   const dI=+document.getElementById('map-date').value, descI=+document.getElementById('map-desc').value, aI=+document.getElementById('map-amt').value;
   const invert = document.getElementById('csv-invert').checked;
-  const existing = new Set(state.transactions.map(t => txnDupeKey(t.date, t.amount, t.description)));
-  let imported=0, skipped=0, duplicates=0;
+  const usedIds = new Set();
+  let imported=0, skipped=0, duplicates=0, enriched=0;
   let ord = nextOrd(); // preserve CSV row order for same-day sequencing
   for (const row of csvData) {
     const desc=row[descI], dateRaw=row[dI];
@@ -2969,14 +3000,15 @@ function importCSV() {
     if(invert)amt=-amt;
     const date=parseDate(dateRaw); if(!date){skipped++;continue;}
     const type=amt>=0?'income':'expense';
-    const key = txnDupeKey(date, Math.abs(amt), desc);
-    if (existing.has(key)) { duplicates++; continue; }
-    existing.add(key);
-    state.transactions.push({id:uid(), amount:Math.abs(amt), date, description:desc, categoryId:autoCategorize(desc,type,Math.abs(amt)), notes:'', type, ord:ord++});
+    const absAmt=Math.abs(amt);
+    const m = matchImportRow(date, absAmt, desc, type, usedIds);
+    if (m.action==='duplicate') { duplicates++; continue; }
+    if (m.action==='enrich') { enrichTxn(m.txn, desc, type, absAmt); usedIds.add(m.txn.id); enriched++; continue; }
+    state.transactions.push({id:uid(), amount:absAmt, date, description:desc, categoryId:autoCategorize(desc,type,absAmt), notes:'', type, ord:ord++});
     imported++;
   }
   save(); renderAll(); cancelCSV();
-  alert(`Imported ${imported} transactions.${duplicates?' '+duplicates+' duplicates skipped.':''}${skipped?' '+skipped+' invalid rows skipped.':''}`);
+  alert(`Imported ${imported} transactions.${enriched?' '+enriched+' updated with full details.':''}${duplicates?' '+duplicates+' duplicates skipped.':''}${skipped?' '+skipped+' invalid rows skipped.':''}`);
 }
 
 function parseDate(s) {
