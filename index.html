@@ -292,6 +292,7 @@
           <select id="txn-filter-cat" onchange="renderTransactions()" style="max-width:160px">
             <option value="">All categories</option>
           </select>
+          <button class="btn btn-outline btn-sm" onclick="openDupeFinder()" style="white-space:nowrap">Find duplicates</button>
           <span id="txn-count" style="margin-left:auto;font-size:13px;color:var(--muted);white-space:nowrap"></span>
         </div>
         <div id="txn-bulk-bar" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;margin-bottom:14px">
@@ -650,6 +651,20 @@
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('modal-recurring')">Close</button>
       <button class="btn btn-primary" id="plan-save-btn" onclick="saveRecurringItem()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Find Duplicates Modal -->
+<div class="modal-overlay" id="modal-dupes">
+  <div class="modal">
+    <h2>Possible duplicates</h2>
+    <p style="color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:14px">
+      Transactions with the <strong>same date and amount</strong>. Some are real (two coffees, two $25 charges) — only delete the ones that are truly the same transaction imported twice.
+    </p>
+    <div id="dupe-list"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeModal('modal-dupes')">Done</button>
     </div>
   </div>
 </div>
@@ -2385,6 +2400,64 @@ function deleteTransaction(id) {
   if (!confirm('Delete this transaction?')) return;
   state.transactions = state.transactions.filter(t=>t.id!==id);
   save(); renderAll();
+}
+
+// ===== FIND DUPLICATES — groups transactions sharing date + amount + type, so
+// pending/settled pairs (same date & amount, different description) surface for
+// manual review. Nothing is auto-deleted; the user deletes the true dupes. =====
+function openDupeFinder() {
+  renderDupeGroups();
+  document.getElementById('modal-dupes').classList.add('open');
+}
+
+function renderDupeGroups() {
+  const el = document.getElementById('dupe-list');
+  if (!el) return;
+  const groups = {};
+  for (const t of state.transactions) {
+    const key = t.date + '|' + t.amount.toFixed(2) + '|' + t.type;
+    (groups[key] = groups[key] || []).push(t);
+  }
+  const dupeGroups = Object.values(groups)
+    .filter(arr => arr.length > 1)
+    .sort((a, b) => b[0].date.localeCompare(a[0].date));
+  if (!dupeGroups.length) {
+    el.innerHTML = `<div style="color:var(--muted);font-size:14px;padding:8px 0">No possible duplicates found — every transaction has a unique date + amount + type. 🎉</div>`;
+    return;
+  }
+  const total = dupeGroups.reduce((s, arr) => s + arr.length, 0);
+  el.innerHTML = `<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${dupeGroups.length} group${dupeGroups.length===1?'':'s'} · ${total} transactions to review</div>` +
+    dupeGroups.map(arr => {
+      const t0 = arr[0];
+      const sign = t0.type === 'income' ? '+' : '-';
+      const col = t0.type === 'income' ? 'var(--green)' : 'var(--red)';
+      const rows = arr.map(t => {
+        const cat = getCat(t.categoryId); const par = cat ? getParent(cat) : null;
+        const cname = par ? (par.name + (cat && cat.id !== par.id ? ' › ' + cat.name : '')) : (cat ? cat.name : '—');
+        return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)">
+          <div style="min-width:0;flex:1">
+            <div style="font-weight:500;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.description}</div>
+            <div style="color:var(--muted);font-size:12px">${cname}</div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="deleteDupeTxn('${t.id}')" style="font-size:11px;padding:3px 10px;flex-shrink:0">Delete</button>
+        </div>`;
+      }).join('');
+      return `<div style="border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px">
+          <span>${t0.date}</span><span style="color:${col}">${sign}${fmt(t0.amount)}</span>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+}
+
+function deleteDupeTxn(id) {
+  state.transactions = state.transactions.filter(t => t.id !== id);
+  selectedTxns.delete(id);
+  save();
+  renderDupeGroups();
+  renderTransactions();
+  renderDashboard();
 }
 
 function openModal(mode, id) {
