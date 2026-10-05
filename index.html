@@ -2179,6 +2179,17 @@ function buildCatOptions(type) {
   }).join('');
 }
 
+// Full category picker covering ALL four main types, laid out like the Budget
+// tab: a section header per main type (Expenses / Income / Savings / Investments)
+// then each parent category with its sub-categories. Built live from
+// state.categories, so it reflects whatever the Budget tab currently has.
+function buildAllCatOptions() {
+  return TYPE_ORDER.map(t => {
+    const opts = buildCatOptions(t);
+    return opts ? `<option disabled>— ${TYPE_META[t].label} —</option>${opts}` : '';
+  }).join('');
+}
+
 function renderTransactions() {
   const month = state.currentMonth;
   const monthStart = month + '-01';
@@ -2228,11 +2239,9 @@ function renderTransactions() {
   const empty = document.getElementById('txn-empty');
   if (!txns.length) { tbody.innerHTML=''; empty.style.display='block'; updateBulkBar(); return; }
   empty.style.display='none';
+  const allOpts = buildAllCatOptions();
   tbody.innerHTML = txns.map(t => {
     const cat = getCat(t.categoryId); const par = getParent(cat);
-    const expOpts = buildCatOptions('expense');
-    const incOpts = buildCatOptions('income');
-    const allOpts = expOpts + incOpts;
     return `<tr id="txnrow-${t.id}">
       <td><input type="checkbox" class="txn-check" data-id="${t.id}" ${selectedTxns.has(t.id)?'checked':''} onchange="toggleTxnSelect('${t.id}', this.checked)" style="width:auto;cursor:pointer"></td>
       <td>${t.date}</td>
@@ -2314,12 +2323,14 @@ function updateBulkBar() {
   if (countEl) countEl.textContent = n + (n === 1 ? ' selected' : ' selected');
   const allBox = document.getElementById('txn-select-all');
   if (allBox) allBox.checked = n > 0 && visibleTxnIds.every(id => selectedTxns.has(id));
-  // Populate bulk category selector once
+  // Rebuild the bulk category selector every time so it tracks category changes.
   const catSel = document.getElementById('txn-bulk-cat');
-  if (catSel && !catSel.dataset.built) {
-    catSel.innerHTML = '<option value="">—</option>' + TYPE_ORDER.map(t => buildCatOptions(t)).join('');
-    catSel.dataset.built = '1';
-    catSel.onchange = () => { if (catSel.value) bulkSetCategory(catSel.value); };
+  if (catSel) {
+    catSel.innerHTML = '<option value="">Set category…</option>' + buildAllCatOptions();
+    if (!catSel.dataset.built) {
+      catSel.dataset.built = '1';
+      catSel.onchange = () => { if (catSel.value) bulkSetCategory(catSel.value); };
+    }
   }
   if (catSel) catSel.value = '';
   const typeSel = document.getElementById('txn-bulk-type');
@@ -2357,6 +2368,8 @@ function bulkDelete() {
 function showCatSelect(id) {
   document.getElementById(`catbadge-${id}`).style.display = 'none';
   const sel = document.getElementById(`catsel-${id}`);
+  const t = state.transactions.find(x => x.id === id);
+  if (t) sel.value = t.categoryId; // preselect the transaction's current category
   sel.style.display = 'inline-block';
   sel.focus();
 }
