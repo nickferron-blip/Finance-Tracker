@@ -502,6 +502,7 @@
         <select id="rule-amt-op" onchange="onRuleAmtOpChange()">
           <option value="none">Any amount</option>
           <option value="max">Up to (max)</option>
+          <option value="less">Less than</option>
           <option value="exact">Exactly</option>
         </select>
       </div>
@@ -1352,6 +1353,7 @@ function amountMatches(rule, amount) {
   if (!rule.amtOp) return true;
   if (amount == null) return false;
   if (rule.amtOp === 'max')   return amount <= rule.amtVal + 0.005;
+  if (rule.amtOp === 'less')  return amount <  rule.amtVal - 0.005;
   if (rule.amtOp === 'exact') return Math.abs(amount - rule.amtVal) < 0.005;
   return true;
 }
@@ -3108,6 +3110,7 @@ function renderRules() {
   tbody.innerHTML = rules.map(r => {
     const cat=getCat(r.cat); const par=getParent(cat);
     const amtLabel = r.amtOp === 'max' ? '≤ ' + fmt(r.amtVal)
+                   : r.amtOp === 'less' ? '< ' + fmt(r.amtVal)
                    : r.amtOp === 'exact' ? '= ' + fmt(r.amtVal) : '—';
     const catOpts = state.categories.map(c =>
       `<option value="${c.id}"${c.id===r.cat?' selected':''}>${catDisplayName(c)} (${c.type})</option>`).join('');
