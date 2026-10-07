@@ -164,6 +164,20 @@ Considered replacing the "share screenshot with Claude" step with in-browser OCR
 
 - Prefers direct, incremental changes with immediate `git push` after each edit — this project has been built through many small back-to-back requests rather than big upfront specs
 - Cares about visual polish — "modern, pure, clean" with copper + purple + white accents was an explicit late-stage design direction
-- Wants duplicate protection on all import paths (manual CSV wizard and auto-import both use the same `txnDupeKey` date+amount+description matching)
+- Wants duplicate protection on all import paths (manual CSV wizard and auto-import both use `matchImportRow`: date+amount+type+description; re-importing also re-stamps each existing row's `ord` so CSV order is restored). A **Find duplicates** tool on the Transactions page surfaces same date+amount+type groups for manual review (pending/settled pairs the bank re-dates are NOT auto-detected).
 - Explicitly does not want savings/investment "envelope" money to affect the Net Balance calculation — that's a firm rule, not a suggestion
 - Is cautious about security/risk tradeoffs — explicitly steered away from RBC login automation once the account-lockout risk was explained
+
+---
+
+## 8. Sync safety + History log (added Oct 2026 — read before touching persistence)
+
+**Why:** edits were occasionally "undone". Root causes found: Google access tokens expire after ~1h and nothing refreshed them; `_saveToDrive` ignored the HTTP status and still flashed "Saved" (edit lived only in IndexedDB, then the next load replaced it with Drive's older copy); the tab-focus refresh guard (`_saveTimer`) was never cleared; every save overwrote the whole Drive file (stale tab/device clobbered newer data); the type badge and "Re-categorize All" re-ran auto-categorize over hand-picked categories.
+
+**How it works now** (all in the `SYNC SAFETY` / `HISTORY LOG` blocks of `index.html`):
+- `_driveFetch` refreshes the token proactively and retries once on 401. `_saveToDrive` checks `res.ok`; on failure the header shows a persistent red "⚠ Not saved to Drive — tap to retry" and `_dirty` stays true. A 30s interval retries; `beforeunload` warns while dirty.
+- `_dirty` and `_baseIds` (transaction ids at the last successful sync) persist in IndexedDB. On load, if dirty, Drive's copy is **merged** (`mergeTransactions`, 3-way by id; per-transaction `mtime` decides edit conflicts; categories/rules/plans are unioned) instead of replacing local state. Before every save, Drive's `modifiedTime` is compared with `_lastRemoteMod`; if someone else wrote, merge first.
+- Every transaction edit stamps `mtime`. Out-of-band edits to the Drive JSON (e.g. a script removing duplicates) can be resurrected by a stale open tab — reload open tabs first.
+- `state.history` (capped at 1500) logs edits/deletes/adds/imports with before→after via `editTxn` / `bulkEdit` / `logDeleted` / `logHistory`; the **History** button on the Transactions page lists it with **Undo** for edits, deletes, adds and imports. New code that mutates transactions should go through these helpers.
+- "Re-categorize" now only touches transactions in Unknown. Type toggle keeps the current category if it already fits the new type.
+- The Transactions page shows a live **Total** of the Amount column for the filtered rows (income +, expense/savings/investment −), in the header count and a sticky footer row.
