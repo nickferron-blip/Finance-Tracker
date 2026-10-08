@@ -673,6 +673,19 @@
   </div>
 </div>
 
+<!-- Reassign-before-delete Modal -->
+<div class="modal-overlay" id="modal-reassign">
+  <div class="modal">
+    <h2 id="reassign-title">Delete</h2>
+    <p id="reassign-msg" style="color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:14px"></p>
+    <div class="form-group full"><label>Move them to</label><select id="reassign-target"></select></div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('modal-reassign')">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmReassign()">Move &amp; delete</button>
+    </div>
+  </div>
+</div>
+
 <!-- History Modal -->
 <div class="modal-overlay" id="modal-history">
   <div class="modal" style="max-width:640px">
@@ -1235,16 +1248,69 @@ function _applyTxnChanges(t, changes) {
   return {id: t.id, before, after};
 }
 // Edit many transactions at once (changesFn(t) → fields) and log it as ONE undoable entry.
-function bulkEdit(txns, changesFn, label) {
+function bulkEdit(txns, changesFn, label, extra) {
   const items = [];
   for (const t of txns) {
     const c = _applyTxnChanges(t, changesFn(t));
     if (c) { c.desc = t.description; c.date = t.date; c.amount = t.amount; items.push(c); }
   }
-  if (items.length) logHistory({kind: 'edit', label, items});
+  if (items.length) logHistory({kind: 'edit', label, items, ...(extra || {})});
   return items.length;
 }
 function editTxn(t, changes, label) { return bulkEdit([t], () => changes, label) > 0; }
+// Delete categories/budget lines and keep everything that pointed at them consistent:
+// transactions, auto-categorize rules and cashflow plans move to `targetId` (a split plan,
+// which depends on its own category's budget, is dropped). Income vs spending direction of a
+// transaction is never changed. One undoable history entry restores it all.
+function _catUsage(ids) {
+  return {txns: state.transactions.filter(t => ids.includes(t.categoryId)).length,
+          rules: (state.rules || []).filter(r => ids.includes(r.cat)).length,
+          plans: (state.recurringItems || []).filter(p => ids.includes(p.categoryId)).length};
+}
+function _removeCategories(ids, targetId, label) {
+  const target = targetId ? state.categories.find(c => c.id === targetId) : null;
+  const restore = {categories: state.categories.filter(c => ids.includes(c.id)).map(c => ({...c})), budgets: {}, rules: [], plans: []};
+  ids.forEach(id => { if (state.budgets[id] != null) restore.budgets[id] = state.budgets[id]; });
+  const affected = state.transactions.filter(t => ids.includes(t.categoryId));
+  let moved = 0, msg = `Deleted ${label}`;
+  if (target) {
+    msg = `Moved to ${catDisplayName(target)} (${label} deleted)`;
+    (state.rules || []).forEach(r => { if (ids.includes(r.cat)) { restore.rules.push({id: r.id, cat: r.cat}); r.cat = target.id; } });
+    state.recurringItems = (state.recurringItems || []).filter(p => {
+      if (!ids.includes(p.categoryId)) return true;
+      restore.plans.push(JSON.parse(JSON.stringify(p)));
+      if (p.mode === 'spread') return false;
+      p.categoryId = target.id; p.type = target.type; return true;
+    });
+    const outflow = ty => ty !== 'income';
+    moved = bulkEdit(affected, t => ({categoryId: target.id, type: outflow(t.type) === outflow(target.type) ? target.type : t.type}), msg, {restore});
+  }
+  if (!moved) logHistory({kind: 'edit', label: msg, items: [], restore});
+  state.categories = state.categories.filter(c => !ids.includes(c.id));
+  ids.forEach(id => delete state.budgets[id]);
+  return moved;
+}
+let _reassignCtx = null;
+function openReassign(ids, name, proceed) {
+  const u = _catUsage(ids);
+  const parts = [u.txns && `${u.txns} transaction${u.txns === 1 ? '' : 's'}`, u.rules && `${u.rules} auto-categorize rule${u.rules === 1 ? '' : 's'}`, u.plans && `${u.plans} cashflow plan${u.plans === 1 ? '' : 's'}`].filter(Boolean);
+  _reassignCtx = {ids, proceed};
+  document.getElementById('reassign-title').textContent = `Delete "${name}"`;
+  document.getElementById('reassign-msg').innerHTML = `${parts.join(', ')} use <strong>${_escH(name)}</strong>. Choose where they should move so nothing is left orphaned. (Whether a transaction is income or spending is never changed.)`;
+  const sel = document.getElementById('reassign-target');
+  sel.innerHTML = buildAllCatOptions(ids);
+  const unknown = state.categories.find(c => c.name === 'Unknown' && !c.parentId && !ids.includes(c.id));
+  if (unknown) sel.value = unknown.id;
+  document.getElementById('modal-reassign').classList.add('open');
+}
+function confirmReassign() {
+  const target = document.getElementById('reassign-target').value;
+  if (!target || !_reassignCtx) return;
+  const ctx = _reassignCtx; _reassignCtx = null;
+  closeModal('modal-reassign');
+  ctx.proceed(target);
+}
+
 function logDeleted(txns, label) { if (txns.length) logHistory({kind: 'delete', label, items: txns.map(t => ({...t}))}); }
 
 function undoHistory(id) {
@@ -1252,6 +1318,16 @@ function undoHistory(id) {
   if (!h || h.undone) return;
   let n = 0;
   if (h.kind === 'edit') {
+    if (h.restore) {                       // a category/budget deletion: bring back what was removed
+      const R = h.restore;
+      (R.categories || []).forEach(c => { if (!state.categories.some(x => x.id === c.id)) { state.categories.push({...c}); n++; } });
+      Object.entries(R.budgets || {}).forEach(([id, amt]) => { if (state.budgets[id] == null) state.budgets[id] = amt; });
+      (R.rules || []).forEach(r => { const x = (state.rules || []).find(y => y.id === r.id); if (x) x.cat = r.cat; });
+      (R.plans || []).forEach(pl => {
+        const cp = JSON.parse(JSON.stringify(pl)), i = (state.recurringItems || []).findIndex(y => y.id === pl.id);
+        if (i >= 0) state.recurringItems[i] = cp; else (state.recurringItems = state.recurringItems || []).push(cp);
+      });
+    }
     for (const it of h.items) {
       const t = state.transactions.find(x => x.id === it.id); if (!t) continue;
       const fields = {...it.before};
@@ -2451,12 +2527,13 @@ function renderDashboard() {
 }
 
 // ===== TRANSACTIONS =====
-function buildCatOptions(type) {
-  return parentCats(type).map(p => {
-    const subs = subCats(p.id);
+function buildCatOptions(type, exclude) {
+  const ex = new Set(exclude || []);
+  return parentCats(type).filter(p => !ex.has(p.id)).map(p => {
+    const all = subCats(p.id), subs = all.filter(x => !ex.has(x.id));
     if (subs.length)
       return `<optgroup label="${p.name}">${subs.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</optgroup>`;
-    return `<option value="${p.id}">${p.name}</option>`;
+    return `<option value="${p.id}">${p.name}</option>`;   // no (remaining) budget lines → the category itself
   }).join('');
 }
 
@@ -2464,9 +2541,9 @@ function buildCatOptions(type) {
 // tab: a section header per main type (Expenses / Income / Savings / Investments)
 // then each parent category with its sub-categories. Built live from
 // state.categories, so it reflects whatever the Budget tab currently has.
-function buildAllCatOptions() {
+function buildAllCatOptions(exclude) {
   return TYPE_ORDER.map(t => {
-    const opts = buildCatOptions(t);
+    const opts = buildCatOptions(t, exclude);
     return opts ? `<option disabled>— ${TYPE_META[t].label} —</option>${opts}` : '';
   }).join('');
 }
@@ -2504,7 +2581,7 @@ function renderTransactions() {
   let txns = getMonthTxns(month);
   if (search)     txns = txns.filter(t=>t.description.toLowerCase().includes(search));
   if (filterType) txns = txns.filter(t=>t.type===filterType);
-  if (filterCat)  txns = txns.filter(t=>t.categoryId===filterCat);
+  if (filterCat)  txns = txns.filter(t => catFilterMatch(t, filterCat));
   // Latest transaction at the very top, earliest at the very bottom — a full
   // reverse of the import (CSV) order, row by row: newest day first, and within
   // a day the later rows above the earlier ones. Each row still shows its true
@@ -3147,18 +3224,11 @@ function saveBudget() {
 
 function deleteBudgetLine() {
   if (!editingBudgetSubId) return;
-  const line = getCat(editingBudgetSubId);
-  const txnCount = state.transactions.filter(t => t.categoryId === editingBudgetSubId).length;
-  let msg = `Delete budget line "${line.name}"?`;
-  if (txnCount) msg += `\n\n${txnCount} transaction${txnCount===1?'':'s'} use it — they'll be moved to Unknown.`;
-  if (!confirm(msg)) return;
-  const unknownId = state.categories.find(c => c.name === 'Unknown')?.id;
-  if (unknownId) bulkEdit(state.transactions.filter(t => t.categoryId === editingBudgetSubId), () => ({categoryId: unknownId, type: 'expense'}), `Moved to Unknown (budget line "${line.name}" deleted)`);
-  logHistory({kind:'info', summary:`Budget line "${line.name}" deleted`});
-  state.categories = state.categories.filter(c => c.id !== editingBudgetSubId);
-  delete state.budgets[editingBudgetSubId];
-  editingBudgetSubId = null;
-  save(); closeModal('modal-budget'); renderAll();
+  const id = editingBudgetSubId, line = getCat(id);
+  const finish = (targetId) => { _removeCategories([id], targetId, `budget line "${line.name}"`); editingBudgetSubId = null; save(); closeModal('modal-budget'); renderAll(); };
+  const u = _catUsage([id]);
+  if (u.txns || u.rules || u.plans) openReassign([id], line.name, finish);
+  else if (confirm(`Delete budget line "${line.name}"?`)) finish(null);
 }
 
 // ===== CATEGORIES =====
@@ -3283,40 +3353,52 @@ function saveCategory() {
 }
 
 function deleteCategory(id) {
-  if (!confirm('Delete this category?')) return;
-  state.categories = state.categories.filter(c=>c.id!==id && c.parentId!==id);
-  delete state.budgets[id];
-  save(); renderAll();
+  const cat = getCat(id), removeIds = [id, ...subCats(id).map(x => x.id)];
+  const finish = (targetId) => { _removeCategories(removeIds, targetId, `category "${cat.name}"`); save(); renderAll(); };
+  const u = _catUsage(removeIds);
+  if (u.txns || u.rules || u.plans) openReassign(removeIds, cat.name, finish);
+  else if (confirm('Delete this category?')) finish(null);
 }
 
 function deleteCategoryFromModal() {
   if (!editingCatId) return;
-  const cat = getCat(editingCatId);
-  const subs = subCats(editingCatId);
-  const txnCount = state.transactions.filter(t => t.categoryId === editingCatId || subs.some(s=>s.id===t.categoryId)).length;
-  let msg = `Delete "${cat.name}"`;
-  if (subs.length) msg += ` and its ${subs.length} budget account${subs.length===1?'':'s'}`;
-  msg += '?';
-  if (txnCount) msg += `\n\n${txnCount} transaction${txnCount===1?'':'s'} use it — they'll become uncategorized (reassign them to Unknown).`;
-  if (!confirm(msg)) return;
-  const removeIds = [editingCatId, ...subs.map(s=>s.id)];
-  const unknownId = state.categories.find(c=>c.name==='Unknown')?.id;
-  if (unknownId) bulkEdit(state.transactions.filter(t => removeIds.includes(t.categoryId)), () => ({categoryId: unknownId, type: 'expense'}), `Moved to Unknown (category "${cat.name}" deleted)`);
-  logHistory({kind:'info', summary:`Category "${cat.name}" deleted`});
-  state.categories = state.categories.filter(c => !removeIds.includes(c.id));
-  removeIds.forEach(id => delete state.budgets[id]);
-  editingCatId = null;
-  save(); closeModal('modal-cat'); renderAll();
+  const id = editingCatId, cat = getCat(id), subs = subCats(id);
+  const removeIds = [id, ...subs.map(x => x.id)];
+  const finish = (targetId) => { _removeCategories(removeIds, targetId, `category "${cat.name}"`); editingCatId = null; save(); closeModal('modal-cat'); renderAll(); };
+  const u = _catUsage(removeIds);
+  if (u.txns || u.rules || u.plans) openReassign(removeIds, cat.name + (subs.length ? ` (and its ${subs.length} budget line${subs.length === 1 ? '' : 's'})` : ''), finish);
+  else if (confirm(`Delete "${cat.name}"` + (subs.length ? ` and its ${subs.length} budget account${subs.length === 1 ? '' : 's'}` : '') + '?')) finish(null);
 }
 
 // ===== POPULATE SELECTS =====
+// Filter dropdown, laid out like the per-row category selector but with EVERY level
+// selectable: a main type ("All Expenses"), a category ("All Housing") or one budget line.
+const TYPE_PLURAL = {expense: 'Expenses', income: 'Income', savings: 'Savings', investment: 'Investments'};
+function buildFilterCatOptions() {
+  return TYPE_ORDER.map(t => {
+    const parents = parentCats(t); if (!parents.length) return '';
+    return `<option value="type:${t}">— All ${TYPE_PLURAL[t]} —</option>` + parents.map(p => {
+      const subs = subCats(p.id);
+      if (!subs.length) return `<option value="${p.id}">${_escH(p.name)}</option>`;
+      return `<optgroup label="${_escH(p.name)}"><option value="${p.id}">All ${_escH(p.name)}</option>` +
+        subs.map(x => `<option value="${x.id}">${_escH(x.name)}</option>`).join('') + `</optgroup>`;
+    }).join('');
+  }).join('');
+}
+// Does a transaction fall under a filter value (type:<t> | category id | budget-line id)?
+function catFilterMatch(t, v) {
+  if (v.startsWith('type:')) return getCat(t.categoryId).type === v.slice(5);
+  if (t.categoryId === v) return true;
+  const c = state.categories.find(x => x.id === t.categoryId);
+  return !!c && c.parentId === v;
+}
 function populateCatSelects() {
   populateTxnCatSelect();
-  // Filter dropdown — flat list with parent › sub labels
   const fc = document.getElementById('txn-filter-cat');
   if (fc) {
-    fc.innerHTML = '<option value="">All categories</option>' +
-      state.categories.map(c=>`<option value="${c.id}">${catDisplayName(c)}</option>`).join('');
+    const cur = fc.value;                                   // keep the user's selection across re-renders
+    fc.innerHTML = '<option value="">All categories</option>' + buildFilterCatOptions();
+    if (cur && [...fc.options].some(o => o.value === cur)) fc.value = cur;
   }
 }
 
