@@ -1723,15 +1723,32 @@ function amountMatches(rule, amount) {
   return true;
 }
 
+// The part of a bank description that names the merchant — the text after the payment-type
+// prefix: "ACHAT VISA DÉBIT - 8593 TELUS STREAM PL" → "8593 telus stream pl".
+function merchantPart(nd) { const i = nd.indexOf(' - '); return i >= 0 ? nd.slice(i + 3) : nd; }
+
+// Choose the best of all matching user rules by SPECIFICITY (not list order):
+//   exact-description rule > keyword found in the merchant part (not just the generic payment
+//   prefix like "visa débit") > has an amount condition > longer keyword > earlier in the list.
+// This is why "telus stream" now beats a generic "visa débit" rule for the same transaction.
+function bestRule(nd, amount) {
+  const m = merchantPart(nd);
+  let best = null, bestScore = null;
+  (state.rules || []).forEach((r, i) => {
+    const hit = r.exact ? nd === r.kw : keywordMatches(nd, r.kw);
+    if (!hit || !amountMatches(r, amount)) return;
+    const score = [r.exact ? 1 : 0, (r.exact || keywordMatches(m, r.kw)) ? 1 : 0, r.amtOp ? 1 : 0, (r.kw || '').length, -i];
+    let better = !bestScore;
+    for (let k = 0; !better && k < score.length; k++) { if (score[k] !== bestScore[k]) { better = score[k] > bestScore[k]; break; } }
+    if (better) { best = r; bestScore = score; }
+  });
+  return best;
+}
 function autoCategorize(description, type, amount) {
   const nd = normDesc(description);
-  // 1. User rules. Amount-conditioned rules are checked first (more specific),
-  //    then within each group the first keyword/exact match wins.
-  const rules = (state.rules || []).slice().sort((a, b) => (b.amtOp?1:0) - (a.amtOp?1:0));
-  for (const r of rules) {
-    const kwHit = r.exact ? nd === r.kw : keywordMatches(nd, r.kw);
-    if (kwHit && amountMatches(r, amount)) return r.cat;
-  }
+  // 1. User rules, most specific match wins (see bestRule).
+  const rule = bestRule(nd, amount);
+  if (rule) return rule.cat;
   // 2. Built-in keyword map — match to sub-category name first
   for (const {kw, cat} of KEYWORD_MAP) {
     if (keywordMatches(nd, kw.toLowerCase())) {
