@@ -426,7 +426,7 @@
       </div>
       <div class="card">
         <table>
-          <thead><tr><th>Type</th><th>Keyword</th><th>Amount</th><th>Category</th><th></th></tr></thead>
+          <thead><tr><th>Type</th><th>Keyword</th><th>Amount</th><th>Category</th><th>Notes</th><th></th></tr></thead>
           <tbody id="rules-tbody"></tbody>
         </table>
         <div id="rules-empty" class="empty" style="display:none">No rules yet.</div>
@@ -527,6 +527,10 @@
       <div class="form-group full">
         <label>Assign to Category</label>
         <select id="rule-cat"></select>
+      </div>
+      <div class="form-group full">
+        <label>Notes (optional)</label>
+        <input type="text" id="rule-notes" placeholder="Added to matching transactions that have no notes yet">
       </div>
     </div>
     <div class="modal-footer">
@@ -1456,9 +1460,10 @@ async function scanImportFolder(silent) {
       for (const r of rows) {
         const m = matchImportRow(r.date, r.amount, r.description, r.type, usedIds);
         if (m.action === 'duplicate') { m.txn.ord = ord++; usedIds.add(m.txn.id); duplicates++; continue; }
+        const am = autoMatch(r.description, r.type, r.amount);
         const nt = {
           id: uid(), amount: r.amount, date: r.date, description: r.description,
-          categoryId: autoCategorize(r.description, r.type, r.amount), notes: '', type: r.type, ord: ord++, mtime: Date.now()
+          categoryId: am.cat, notes: am.rule?.notes || '', type: r.type, ord: ord++, mtime: Date.now()
         };
         state.transactions.push(nt); newIds.push(nt.id);
         imported++;
@@ -1744,24 +1749,27 @@ function bestRule(nd, amount) {
   });
   return best;
 }
-function autoCategorize(description, type, amount) {
+// Returns {cat, rule}: the category to use and the user rule that decided it (null when the
+// built-in keyword map or the Unknown fallback decided). The rule carries optional notes.
+function autoMatch(description, type, amount) {
   const nd = normDesc(description);
   // 1. User rules, most specific match wins (see bestRule).
   const rule = bestRule(nd, amount);
-  if (rule) return rule.cat;
+  if (rule) return {cat: rule.cat, rule};
   // 2. Built-in keyword map — match to sub-category name first
   for (const {kw, cat} of KEYWORD_MAP) {
     if (keywordMatches(nd, kw.toLowerCase())) {
       const found = state.categories.find(c => c.name === cat && c.type === type)
                  || state.categories.find(c => c.name === cat);
-      if (found) return found.id;
+      if (found) return {cat: found.id, rule: null};
     }
   }
   // 3. Fallback: the "Unknown" category
-  return state.categories.find(c => c.name === 'Unknown')?.id
+  return {cat: state.categories.find(c => c.name === 'Unknown')?.id
       || state.categories.find(c => c.type === type)?.id
-      || state.categories[0]?.id;
+      || state.categories[0]?.id, rule: null};
 }
+function autoCategorize(description, type, amount) { return autoMatch(description, type, amount).cat; }
 
 // Add a keyword rule (optionally amount-conditioned) to the rules list.
 function addKeywordRule(kw, categoryId, amtOp, amtVal) {
@@ -1810,6 +1818,7 @@ function openRuleFromTxn(txnId) {
   document.getElementById('rule-keyword').value = extractKeyword(t.description) || '';
   document.getElementById('rule-amt-op').value = 'none';
   document.getElementById('rule-amt-val').value = t.amount ? t.amount.toFixed(2) : '';
+  document.getElementById('rule-notes').value = t.notes || '';
   onRuleAmtOpChange();
   populateRuleCatSelect(t.categoryId);
   document.getElementById('modal-rule').classList.add('open');
@@ -3493,7 +3502,8 @@ function importCSV() {
     const absAmt=Math.abs(amt);
     const m = matchImportRow(date, absAmt, desc, type, usedIds);
     if (m.action==='duplicate') { m.txn.ord = ord++; usedIds.add(m.txn.id); duplicates++; continue; }
-    const nt = {id:uid(), amount:absAmt, date, description:desc, categoryId:autoCategorize(desc,type,absAmt), notes:'', type, ord:ord++, mtime:Date.now()};
+    const am = autoMatch(desc, type, absAmt);
+    const nt = {id:uid(), amount:absAmt, date, description:desc, categoryId:am.cat, notes:am.rule?.notes || '', type, ord:ord++, mtime:Date.now()};
     state.transactions.push(nt); newIds.push(nt.id);
     imported++;
   }
@@ -3538,11 +3548,16 @@ function renderRules() {
       <td><input value="${(r.kw||'').replace(/"/g,'&quot;')}" onchange="updateRuleKw('${r.id}', this.value)" style="font-family:monospace;font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
       <td style="font-size:13px;color:var(--muted);white-space:nowrap">${amtLabel}</td>
       <td><select onchange="updateRuleCat('${r.id}', this.value)" style="font-size:13px;padding:5px 8px;max-width:200px">${catOpts}</select></td>
+      <td><input value="${(r.notes||'').replace(/"/g,'&quot;')}" placeholder="—" onchange="updateRuleNotes('${r.id}', this.value)" style="font-size:13px;background:transparent;border:1px solid var(--border);border-radius:6px;padding:5px 8px;width:100%;min-width:120px;outline:none" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"></td>
       <td><div style="display:flex;gap:6px"><button class="btn btn-sm btn-outline" onclick="editRule('${r.id}')">Edit</button><button class="btn btn-danger" onclick="deleteRule('${r.id}')">Delete</button></div></td>
     </tr>`;
   }).join('');
 }
 
+function updateRuleNotes(id, value) {
+  const r = state.rules.find(x => x.id === id); if (!r) return;
+  r.notes = value.trim(); save();
+}
 function updateRuleKw(id, val) {
   const r = state.rules.find(x => x.id === id); if (!r) return;
   const v = val.trim().toLowerCase();
@@ -3609,6 +3624,7 @@ function openAddRuleModal() {
   document.getElementById('rule-keyword').value = '';
   document.getElementById('rule-amt-op').value = 'none';
   document.getElementById('rule-amt-val').value = '';
+  document.getElementById('rule-notes').value = '';
   onRuleAmtOpChange();
   populateRuleCatSelect();
   document.getElementById('modal-rule').classList.add('open');
@@ -3621,6 +3637,7 @@ function editRule(id) {
   document.getElementById('rule-keyword').value = r.kw;
   document.getElementById('rule-amt-op').value = r.amtOp || 'none';
   document.getElementById('rule-amt-val').value = r.amtVal != null ? r.amtVal : '';
+  document.getElementById('rule-notes').value = r.notes || '';
   onRuleAmtOpChange();
   populateRuleCatSelect(r.cat);
   document.getElementById('modal-rule').classList.add('open');
@@ -3634,11 +3651,12 @@ function saveRule() {
   const amtVal = amtOp ? parseFloat(document.getElementById('rule-amt-val').value) : null;
   if (!kw) { alert('Enter a keyword.'); return; }
   if (amtOp && (isNaN(amtVal) || amtVal < 0)) { alert('Enter a valid amount for the condition.'); return; }
+  const notes = document.getElementById('rule-notes').value.trim();
   if (editingRuleId) {
     const r = state.rules.find(x => x.id === editingRuleId);
-    if (r) Object.assign(r, {kw, cat: catId, amtOp, amtVal, exact: false});
+    if (r) Object.assign(r, {kw, cat: catId, amtOp, amtVal, notes, exact: false});
   } else {
-    state.rules.push({id: uid(), kw, exact: false, cat: catId, amtOp, amtVal});
+    state.rules.push({id: uid(), kw, exact: false, cat: catId, amtOp, amtVal, notes});
   }
   save(); closeModal('modal-rule'); renderRules();
 }
@@ -3648,7 +3666,12 @@ function recategorizeAll() {
   const todo = state.transactions.filter(t => t.categoryId === unknownId || !state.categories.some(c => c.id === t.categoryId));
   if (!todo.length) { alert('Nothing to re-categorize — no transactions are in Unknown.'); return; }
   if (!confirm(`Apply current rules to the ${todo.length} transaction${todo.length===1?'':'s'} in Unknown?\n\nTransactions you've already categorized are left untouched.`)) return;
-  const n = bulkEdit(todo, t => ({categoryId: autoCategorize(t.description, t.type, t.amount)}), 'Re-categorized Unknown transactions');
+  const n = bulkEdit(todo, t => {
+    const am = autoMatch(t.description, t.type, t.amount);
+    const ch = {categoryId: am.cat};
+    if (!t.notes && am.rule?.notes) ch.notes = am.rule.notes;      // only fill empty notes
+    return ch;
+  }, 'Re-categorized Unknown transactions');
   save(); renderAll(); alert(n ? `Updated ${n} transaction${n===1?'':'s'}. (Undo is in History.)` : 'No rule matched any of them.');
 }
 
