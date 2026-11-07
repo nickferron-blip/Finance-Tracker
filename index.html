@@ -237,6 +237,7 @@
     <button onclick="showPage('rules', this)"><svg xmlns="http://www.w3.org/2000/svg" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg> Auto-categorize</button>
     <div class="nav-spacer"></div>
     <button onclick="exportData()" style="font-size:12px;color:var(--muted)"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export CSV</button>
+    <button onclick="exportBudgets()" style="font-size:12px;color:var(--muted)"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Export budgets</button>
     <button onclick="document.getElementById('import-data-file').click()" style="font-size:12px;color:var(--muted)"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15v4a2 2 0 002 2h14a2 2 0 002-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Import backup</button>
     <input type="file" id="import-data-file" accept=".json" style="display:none" onchange="importBackup(this)">
   </nav>
@@ -491,6 +492,7 @@
       <div class="form-group full">
         <label>Monthly amount ($)</label>
         <input type="number" id="budget-amount" placeholder="0.00" step="0.01" min="0">
+        <div id="budget-scope-hint" style="margin-top:6px;font-size:12px;color:var(--muted)"></div>
       </div>
     </div>
     <div class="modal-footer">
@@ -952,7 +954,18 @@ function _applyDefaults() {
   if (!state.budgets) state.budgets = {};
   // Migrate budgets: if budgets use old 'c' keys, reset to defaults
   const hasPBudgets = Object.keys(state.budgets).some(k => k.startsWith('p'));
-  if (!Object.keys(state.budgets).length || !hasPBudgets) state.budgets = {...DEFAULT_BUDGETS};
+  // (legacy first-run safeguard — never applied once monthly budget history exists)
+  if (!state.budgetHistory && (!Object.keys(state.budgets).length || !hasPBudgets)) state.budgets = {...DEFAULT_BUDGETS};
+  // Monthly budgets: seed the history from the existing flat budgets, starting at the earliest month
+  // with data so every past month looks exactly as before; fold in a change an older client made.
+  const _so = o => JSON.stringify(Object.keys(o || {}).sort().map(k => [k, o[k]]));
+  if (!state.budgetHistory || typeof state.budgetHistory !== 'object' || !Object.keys(state.budgetHistory).length) {
+    const first = (state.transactions || []).reduce((m, t) => (t.date && (!m || t.date < m)) ? t.date : m, '');
+    state.budgetHistory = {[first ? first.slice(0, 7) : (state.currentMonth || _monthNow())]: {...state.budgets}};
+  } else if (_so(budgetsFor(_monthNow())) !== _so(state.budgets)) {
+    state.budgetHistory[_monthNow()] = {...state.budgets};
+  }
+  _rememberBudgetNames(Object.keys(budgetsFor(_monthNow())));
   // Ensure an "Unknown" top-level category exists (default for uncategorizable txns)
   if (!state.categories.find(c => c.name === 'Unknown' && !c.parentId)) {
     state.categories.push({id: 'p17', name: 'Unknown', type: 'expense', color: '#94a3b8', parentId: null});
@@ -1104,6 +1117,46 @@ async function _loadFromDrive() {
   } catch(e) { console.error('Drive load failed', e); }
 }
 
+// ===== MONTHLY BUDGETS =====
+// state.budgetHistory = {'YYYY-MM': {categoryId: amount}} — dated snapshots. The budget for a month is
+// the latest snapshot at or before it (months before the first snapshot use the first). An edit made
+// while viewing month M writes the snapshot for M, so it applies from M onward until the next month
+// that has its own snapshot; earlier months keep what was set at the time. state.budgets mirrors the
+// budgets effective for the real current month (kept for older readers). state.budgetNames remembers
+// "Category › Line" labels so exports stay readable after a category is deleted.
+// <budget-code>
+function _monthNow() { return new Date().toISOString().slice(0, 7); }
+function _addMonth(m) { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 1)).toISOString().slice(0, 7); }
+function budgetsFor(month) {
+  const h = state.budgetHistory, keys = h ? Object.keys(h).sort() : [];
+  if (!keys.length) return state.budgets || {};
+  let pick = keys[0];
+  for (const k of keys) { if (k <= month) pick = k; else break; }
+  return h[pick];
+}
+function budgetFor(catId, month) { return budgetsFor(month)[catId]; }
+function budgetNow(catId) { return budgetFor(catId, _monthNow()); }
+function _rememberBudgetNames(ids) {
+  if (!state.budgetNames) state.budgetNames = {};
+  ids.forEach(id => { const c = state.categories.find(x => x.id === id); if (c) state.budgetNames[id] = {label: catDisplayName(c), type: c.type}; });
+}
+function commitBudgets(mutator, month) {
+  month = month || state.currentMonth;
+  if (!state.budgetHistory) state.budgetHistory = {};
+  const next = {...budgetsFor(month)};
+  mutator(next);
+  state.budgetHistory[month] = next;
+  state.budgets = {...budgetsFor(_monthNow())};
+  _rememberBudgetNames(Object.keys(next));
+}
+// A category/budget line was deleted: it stops existing from `month` on, in every later snapshot too.
+function dropBudgetsFrom(ids, month) {
+  commitBudgets(b => ids.forEach(id => delete b[id]), month);
+  Object.keys(state.budgetHistory).filter(k => k > month).forEach(k => ids.forEach(id => delete state.budgetHistory[k][id]));
+  state.budgets = {...budgetsFor(_monthNow())};
+}
+// </budget-code>
+
 // ===== SYNC SAFETY =====
 // Why this exists: saves used to ignore Drive's response and Google tokens expire
 // after ~1 hour, so edits could "save" locally, fail silently on Drive, then be
@@ -1188,7 +1241,10 @@ function mergeRemote(remote, why) {
   state.categories = _unionById(state.categories, remote.categories);
   state.rules = _unionById(state.rules, remote.rules);
   state.recurringItems = _unionById(state.recurringItems, remote.recurringItems);
-  state.budgets = {...(remote.budgets || {}), ...(state.budgets || {})};
+  state.budgetHistory = {...(remote.budgetHistory || {}), ...(state.budgetHistory || {})};   // per month; ours wins
+  state.budgetNames = {...(remote.budgetNames || {}), ...(state.budgetNames || {})};
+  state.budgets = Object.keys(state.budgetHistory).length ? {...budgetsFor(_monthNow())}
+                : {...(remote.budgets || {}), ...(state.budgets || {})};
   state.importedFileIds = [...new Set([...(state.importedFileIds || []), ...(remote.importedFileIds || [])])];
   if (!state.balanceAnchor && remote.balanceAnchor) state.balanceAnchor = remote.balanceAnchor;
   const hist = _unionById(state.history, remote.history) || [];
@@ -1285,7 +1341,9 @@ function _catUsage(ids) {
 function _removeCategories(ids, targetId, label) {
   const target = targetId ? state.categories.find(c => c.id === targetId) : null;
   const restore = {categories: state.categories.filter(c => ids.includes(c.id)).map(c => ({...c})), budgets: {}, rules: [], plans: []};
-  ids.forEach(id => { if (state.budgets[id] != null) restore.budgets[id] = state.budgets[id]; });
+  const bm = state.currentMonth, cur = budgetsFor(bm);
+  restore.month = bm;
+  ids.forEach(id => { if (cur[id] != null) restore.budgets[id] = cur[id]; });
   const affected = state.transactions.filter(t => ids.includes(t.categoryId));
   let moved = 0, msg = `Deleted ${label}`;
   if (target) {
@@ -1302,7 +1360,7 @@ function _removeCategories(ids, targetId, label) {
   }
   if (!moved) logHistory({kind: 'edit', label: msg, items: [], restore});
   state.categories = state.categories.filter(c => !ids.includes(c.id));
-  ids.forEach(id => delete state.budgets[id]);
+  dropBudgetsFrom(ids, bm);
   return moved;
 }
 let _reassignCtx = null;
@@ -1336,7 +1394,7 @@ function undoHistory(id) {
     if (h.restore) {                       // a category/budget deletion: bring back what was removed
       const R = h.restore;
       (R.categories || []).forEach(c => { if (!state.categories.some(x => x.id === c.id)) { state.categories.push({...c}); n++; } });
-      Object.entries(R.budgets || {}).forEach(([id, amt]) => { if (state.budgets[id] == null) state.budgets[id] = amt; });
+      if (Object.keys(R.budgets || {}).length) commitBudgets(b => Object.entries(R.budgets).forEach(([id, amt]) => { if (b[id] == null) b[id] = amt; }), R.month || state.currentMonth);
       (R.rules || []).forEach(r => { const x = (state.rules || []).find(y => y.id === r.id); if (x) x.cat = r.cat; });
       (R.plans || []).forEach(pl => {
         const cp = JSON.parse(JSON.stringify(pl)), i = (state.recurringItems || []).findIndex(y => y.id === pl.id);
@@ -1565,28 +1623,41 @@ function csvEscape(val) {
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
+// Download rows as an Excel-safe CSV (UTF-8 BOM + charset, CRLF) — without the BOM Excel shows "â€º" for "›".
+function _downloadCsv(rows, filename) {
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], {type: 'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
 function exportData() {
   const txns = [...state.transactions].sort((a,b)=>a.date.localeCompare(b.date));
   const rows = [['Date','Description','Category','Type','Amount','Notes']];
   txns.forEach(t => {
     const cat = getCat(t.categoryId);
-    rows.push([
-      t.date,
-      t.description,
-      cat ? catDisplayName(cat) : '',
-      t.type,
-      t.amount,
-      t.notes || ''
-    ]);
+    rows.push([t.date, t.description, cat ? catDisplayName(cat) : '', t.type, t.amount, t.notes || '']);
   });
-  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
-  // Leading UTF-8 BOM (\uFEFF) + explicit charset: without it Excel guesses Windows-1252 and shows
-  // "â€º" for "›" and mangles accents (É, Ô, Ç) in descriptions.
-  const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'finance-tracker-' + new Date().toISOString().slice(0,10) + '.csv';
-  a.click();
+  _downloadCsv(rows, 'finance-tracker-' + new Date().toISOString().slice(0,10) + '.csv');
+}
+// Every budget line for every month, exactly as it was set in that month.
+function exportBudgets() {
+  const keys = Object.keys(state.budgetHistory || {}).sort();
+  if (!keys.length) { alert('No budgets to export yet.'); return; }
+  const last = [keys[keys.length - 1], _monthNow()].sort().pop();
+  const rows = [['Month','Type','Category','Budget line','Monthly budget']];
+  for (let m = keys[0]; m <= last; m = _addMonth(m)) {
+    const lines = Object.entries(budgetsFor(m)).map(([id, amt]) => {
+      const c = state.categories.find(x => x.id === id), nm = (state.budgetNames || {})[id];
+      let type = '', cat = '(deleted)', line = id;
+      if (c) { const par = c.parentId ? getCat(c.parentId) : c; type = c.type; cat = par.name; line = c.parentId ? c.name : ''; }
+      else if (nm) { const parts = nm.label.split(' › '); type = nm.type; cat = parts[0]; line = parts[1] || ''; }
+      return [m, type, cat, line, amt];
+    }).sort((x, y) => (TYPE_ORDER.indexOf(x[1]) - TYPE_ORDER.indexOf(y[1])) || x[2].localeCompare(y[2]) || x[3].localeCompare(y[3]));
+    lines.forEach(r => rows.push(r));
+  }
+  _downloadCsv(rows, 'finance-tracker-budgets-' + new Date().toISOString().slice(0,10) + '.csv');
 }
 
 function importBackup(input) {
@@ -2066,10 +2137,10 @@ function windowForecast(periodStart, windowEnd) {
     }
 
     // Weekly split → one stable, period-based estimate for this category.
-    if (spreadPlan && state.budgets[catId]) {
+    if (spreadPlan && budgetNow(catId)) {
       const fixedMonthTotal = fixedPlans.flatMap(p => planOccurrencesInRange(p, monthStart, monthEnd))
         .reduce((a, o) => a + o.amount, 0);
-      const pool = Math.max(0, state.budgets[catId] - fixedMonthTotal);
+      const pool = Math.max(0, budgetNow(catId) - fixedMonthTotal);
       const weeklyRate = pool * 7 / dim;
       const periodDays = Math.max(1, daysBetween(periodStart, windowEnd) + 1);
       const periodExpected = weeklyRate * periodDays / 7;
@@ -2346,7 +2417,7 @@ function populateRecurringCatSelect() {
 // (budget minus this month's scheduled charges, over all weeks of the month).
 function spreadWeeklyEstimate(catId) {
   const cat = getCat(catId);
-  const budget = state.budgets[catId];
+  const budget = budgetNow(catId);
   if (!budget) return null;
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 8) + '01';
@@ -2365,7 +2436,7 @@ function updateSpreadPreview() {
   const catId = document.getElementById('recurring-cat').value;
   if (!el || !catId) { if (el) el.innerHTML = ''; return; }
   const cat = getCat(catId);
-  const budget = state.budgets[catId];
+  const budget = budgetNow(catId);
   if (!budget) { el.innerHTML = `<span style="color:var(--yellow)">⚠ ${cat.name} has no budget set — set one first for the weekly split to work.</span>`; return; }
   const today = new Date().toISOString().slice(0, 10);
   const monthStart = today.slice(0, 8) + '01';
@@ -2450,7 +2521,7 @@ function saveRecurringItem() {
   const cat = getCat(categoryId);
 
   if (currentPlanMode === 'spread') {
-    if (!state.budgets[categoryId]) { alert(cat.name + ' has no budget set — set a budget first.'); return; }
+    if (!budgetNow(categoryId)) { alert(cat.name + ' has no budget set — set a budget first.'); return; }
     const carryMode = document.getElementById('recurring-carry-mode').value;
     const existingSpread = (state.recurringItems || []).find(p => p.categoryId === categoryId && p.mode === 'spread');
     if (existingSpread) {
@@ -3018,7 +3089,8 @@ function renderBudgets() {
   // Denominator for the "% of income" figures: total BUDGETED SALARY only
   // (budgets on Salary-category lines) — benefits/extra income excluded.
   // Falls back to actual salary received if no salary budgets are set.
-  const budgetedSalary = Object.entries(state.budgets).reduce((s, [id, amt]) => {
+  const monthBudgets = budgetsFor(state.currentMonth);   // what was set for the month being viewed
+  const budgetedSalary = Object.entries(monthBudgets).reduce((s, [id, amt]) => {
     return s + (isSalaryCat(id) ? amt : 0);
   }, 0);
   const actualSalary = txns.filter(t => t.type === 'income' && isSalaryCat(t.categoryId)).reduce((s, t) => s + t.amount, 0);
@@ -3030,7 +3102,7 @@ function renderBudgets() {
       const subs = subCats(p.id).map(s => ({
         s,
         spent: netCatAmount(s.id, type, txns),
-        limit: state.budgets[s.id] || null
+        limit: monthBudgets[s.id] || null
       }));
       const spent = subs.reduce((a,x)=>a+x.spent, 0) || netCatAmount(p.id, type, txns);
       const limit = subs.reduce((a,x)=>a+(x.limit||0), 0) || null;
@@ -3220,7 +3292,8 @@ function openBudgetModal(preselectSub, preselectParent) {
 
   document.getElementById('modal-budget-title').textContent = editSub ? 'Edit Budget Line' : 'New Budget Line';
   document.getElementById('budget-acct-name').value = editSub ? editSub.name : '';
-  document.getElementById('budget-amount').value = editSub ? (state.budgets[preselectSub] || '') : '';
+  document.getElementById('budget-amount').value = editSub ? (budgetFor(preselectSub, state.currentMonth) || '') : '';
+  document.getElementById('budget-scope-hint').textContent = `Applies from ${monthStr(state.currentMonth)} onward — earlier months keep the amount that was set then.`;
   document.getElementById('budget-delete-btn').style.display = editSub ? 'block' : 'none';
   document.getElementById('modal-budget').classList.add('open');
 }
@@ -3249,14 +3322,15 @@ function saveBudget() {
     // Edit existing budget account
     const sub = state.categories.find(c => c.id === editingBudgetSubId);
     if (sub) Object.assign(sub, {name, parentId, type: parent.type, color: parent.color});
-    logHistory({kind:'info', summary:`Budget "${name}" set to ${fmt(amt)}` + (state.budgets[editingBudgetSubId] != null && state.budgets[editingBudgetSubId] !== amt ? ` (was ${fmt(state.budgets[editingBudgetSubId])})` : '')});
-    state.budgets[editingBudgetSubId] = amt;
+    const prev = budgetFor(editingBudgetSubId, state.currentMonth);
+    logHistory({kind:'info', summary:`Budget "${name}" set to ${fmt(amt)} from ${monthStr(state.currentMonth)}` + (prev != null && prev !== amt ? ` (was ${fmt(prev)})` : '')});
+    commitBudgets(b => { b[editingBudgetSubId] = amt; });
   } else {
     // Create a new budget account (sub-category) under the chosen category
     const id = uid();
     state.categories.push({id, name, type: parent.type, color: parent.color, parentId});
-    state.budgets[id] = amt;
-    logHistory({kind:'info', summary:`Budget line "${name}" created at ${fmt(amt)}`});
+    commitBudgets(b => { b[id] = amt; });
+    logHistory({kind:'info', summary:`Budget line "${name}" created at ${fmt(amt)} from ${monthStr(state.currentMonth)}`});
   }
   editingBudgetSubId = null;
   save(); closeModal('modal-budget'); renderAll();
