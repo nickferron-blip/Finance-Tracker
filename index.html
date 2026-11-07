@@ -1579,8 +1579,10 @@ function exportData() {
       t.notes || ''
     ]);
   });
-  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\n');
-  const blob = new Blob([csv], {type: 'text/csv'});
+  const csv = rows.map(r => r.map(csvEscape).join(',')).join('\r\n');
+  // Leading UTF-8 BOM (\uFEFF) + explicit charset: without it Excel guesses Windows-1252 and shows
+  // "â€º" for "›" and mangles accents (É, Ô, Ç) in descriptions.
+  const blob = new Blob(['\uFEFF' + csv], {type: 'text/csv;charset=utf-8'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'finance-tracker-' + new Date().toISOString().slice(0,10) + '.csv';
