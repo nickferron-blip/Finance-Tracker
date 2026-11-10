@@ -996,6 +996,7 @@ function _applyDefaults() {
   let _mo = 0;
   state.transactions.forEach(t => { if (typeof t.ord === 'number' && t.ord > _mo) _mo = t.ord; });
   state.transactions.forEach(t => { if (typeof t.ord !== 'number') t.ord = ++_mo; });
+  if ((state.ordVersion || 1) < 2) { migrateOrdV2(state.transactions); state.ordVersion = 2; }
 }
 
 // Next import/creation sequence number (monotonic across the whole dataset).
@@ -1005,6 +1006,32 @@ function nextOrd() {
   return m + 1;
 }
 const ordOf = t => (typeof t.ord === 'number' ? t.ord : 0);
+
+// <ord-code>
+// Bank CSVs list each day's transactions NEWEST-first, so the last row of a day actually happened
+// first. `ord` is the chronological sequence (display sorts date desc, then ord desc; running balances
+// accumulate in ord order). chronoOrder numbers rows in that order: days keep first-seen order and the
+// rows inside a day are numbered in REVERSE of the file order.
+function chronoOrder(dates, startOrd) {
+  const groups = new Map();
+  dates.forEach((d, i) => { if (!groups.has(d)) groups.set(d, []); groups.get(d).push(i); });
+  const out = new Array(dates.length); let o = startOrd;
+  for (const idxs of groups.values()) for (let k = idxs.length - 1; k >= 0; k--) out[idxs[k]] = o++;
+  return out;
+}
+// One-time conversion of data stamped in file order (state.ordVersion < 2): reverse each day's rows,
+// reusing the same ord values so nothing shifts between days.
+function migrateOrdV2(txns) {
+  const byDate = new Map();
+  txns.forEach(t => { if (!byDate.has(t.date)) byDate.set(t.date, []); byDate.get(t.date).push(t); });
+  for (const group of byDate.values()) {
+    if (group.length < 2) continue;
+    const sorted = group.slice().sort((a, b) => (a.ord || 0) - (b.ord || 0));
+    const ords = sorted.map(t => t.ord);
+    sorted.forEach((t, i) => { t.ord = ords[ords.length - 1 - i]; });
+  }
+}
+// </ord-code>
 
 function _showSaved() {
   const el = document.getElementById('save-indicator');
@@ -1236,6 +1263,11 @@ function mergeTransactions(localTx, remoteTx, baseIds) {
 
 // Fold Drive's copy into local state without losing either side's changes.
 function mergeRemote(remote, why) {
+  const rv = remote.ordVersion || 1, lv = state.ordVersion || 1;
+  if (rv !== lv) {                       // one side still has file-order ords: convert it before merging
+    if (rv < lv) migrateOrdV2(remote.transactions || []); else migrateOrdV2(state.transactions || []);
+    state.ordVersion = Math.max(rv, lv);
+  }
   const {txns, stats} = mergeTransactions(state.transactions || [], remote.transactions || [], _baseIds);
   state.transactions = txns;
   state.categories = _unionById(state.categories, remote.categories);
@@ -1508,20 +1540,22 @@ async function scanImportFolder(silent) {
     const usedIds = new Set();
     let imported = 0, duplicates = 0;
     const newIds = [];
-    let ord = nextOrd(); // stamp CSV row order onto every row (new and existing)
+    let ord = nextOrd(); // chronological order is stamped onto every row (new and existing)
 
     for (const file of files) {
       const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`,
         {headers: {'Authorization': 'Bearer ' + _accessToken}});
       const text = await fileRes.text();
       const rows = parseAutoImportCSV(text);
-      for (const r of rows) {
+      const ords = chronoOrder(rows.map(r => r.date), ord);   // a day's last row happened first
+      ord += rows.length;
+      for (const [ri, r] of rows.entries()) {
         const m = matchImportRow(r.date, r.amount, r.description, r.type, usedIds);
-        if (m.action === 'duplicate') { m.txn.ord = ord++; usedIds.add(m.txn.id); duplicates++; continue; }
+        if (m.action === 'duplicate') { m.txn.ord = ords[ri]; usedIds.add(m.txn.id); duplicates++; continue; }
         const am = autoMatch(r.description, r.type, r.amount);
         const nt = {
           id: uid(), amount: r.amount, date: r.date, description: r.description,
-          categoryId: am.cat, notes: am.rule?.notes || '', type: r.type, ord: ord++, mtime: Date.now()
+          categoryId: am.cat, notes: am.rule?.notes || '', type: r.type, ord: ords[ri], mtime: Date.now()
         };
         state.transactions.push(nt); newIds.push(nt.id);
         imported++;
@@ -3567,22 +3601,26 @@ function importCSV() {
   const usedIds = new Set();
   let imported=0, skipped=0, duplicates=0;
   const newIds=[];
-  let ord = nextOrd(); // stamp CSV row order onto every row (new and existing)
+  // Pass 1: parse the valid rows.
+  const parsed = [];
   for (const row of csvData) {
     const desc=row[descI], dateRaw=row[dI];
     let amt=parseFloat((row[aI]||'').replace(/[^0-9.\-]/g,''));
     if (isNaN(amt)||!desc||!dateRaw){skipped++;continue;}
     if(invert)amt=-amt;
     const date=parseDate(dateRaw); if(!date){skipped++;continue;}
-    const type=amt>=0?'income':'expense';
-    const absAmt=Math.abs(amt);
-    const m = matchImportRow(date, absAmt, desc, type, usedIds);
-    if (m.action==='duplicate') { m.txn.ord = ord++; usedIds.add(m.txn.id); duplicates++; continue; }
-    const am = autoMatch(desc, type, absAmt);
-    const nt = {id:uid(), amount:absAmt, date, description:desc, categoryId:am.cat, notes:am.rule?.notes || '', type, ord:ord++, mtime:Date.now()};
+    parsed.push({date, desc, absAmt:Math.abs(amt), type: amt>=0?'income':'expense'});
+  }
+  // Pass 2: chronological order (a day's last CSV row happened first), stamped on new AND existing rows.
+  const ords = chronoOrder(parsed.map(p => p.date), nextOrd());
+  parsed.forEach((p, i) => {
+    const m = matchImportRow(p.date, p.absAmt, p.desc, p.type, usedIds);
+    if (m.action==='duplicate') { m.txn.ord = ords[i]; usedIds.add(m.txn.id); duplicates++; return; }
+    const am = autoMatch(p.desc, p.type, p.absAmt);
+    const nt = {id:uid(), amount:p.absAmt, date:p.date, description:p.desc, categoryId:am.cat, notes:am.rule?.notes || '', type:p.type, ord:ords[i], mtime:Date.now()};
     state.transactions.push(nt); newIds.push(nt.id);
     imported++;
-  }
+  });
   if (imported) logHistory({kind:'import', label:`CSV import: ${imported} transaction${imported===1?'':'s'}`, ids:newIds});
   save(); renderAll(); cancelCSV();
   alert(`Imported ${imported} transactions.${duplicates?' '+duplicates+' already existed (order updated).':''}${skipped?' '+skipped+' invalid rows skipped.':''}`);
